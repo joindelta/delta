@@ -1,0 +1,15 @@
+name = "delta-relay"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["0 * * * *"]   # publish pkarr record every hour
+
+# Secrets (set via `wrangler secret put`):
+#   RELAY_SEED_HEX   — 64 hex chars, Ed25519 seed for this relay's keypair
+#   SELF_URL         Base URL of this Worker without trailing slash (e.g. https://relay.delta.app)
+
+[[services]]
+binding = "SYNC"
+service = "delta-sync"

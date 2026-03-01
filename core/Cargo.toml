@@ -1,0 +1,69 @@
+[package]
+name = "core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "delta_core"
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+# P2Panda stack
+p2panda-core = "0.5"
+p2panda-store = { version = "0.5", features = ["sqlite"] }
+p2panda-net = "0.5"
+p2panda-sync = "0.5"
+p2panda-auth = "0.5"
+p2panda-encryption = { version = "0.5", features = ["data_scheme", "message_scheme"] }
+p2panda-blobs = "0.5"
+
+# iroh (transitively pulled by p2panda-net, but we use types directly)
+iroh = { version = "0.96", default-features = false }
+
+# Async utilities
+futures-util = "0.3"
+
+# UniFFI
+uniffi = { version = "0.31", features = ["tokio"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# SQLite (read model) — use sqlx to share the same sqlite3 link unit as p2panda-store
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium = "0.2"
+
+# BIP-39 mnemonic
+bip39 = { version = "2", features = ["rand"] }
+
+# pkarr — publish / resolve signed DNS packets over the mainline BitTorrent DHT
+pkarr = { version = "5" }
+
+# Crypto
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+x25519-dalek      = { version = "2", features = ["static_secrets"] }
+curve25519-dalek  = "4"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+
+# Hex encoding / decoding
+hex = "0.4"
+
+# Base64 encoding / decoding
+base64 = "0.22"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Regex for validation
+regex = "1"
+
+[build-dependencies]
+uniffi = { version = "0.31", features = ["build"] }

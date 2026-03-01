@@ -1,0 +1,12 @@
+name = "delta-web-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Environment variables (set via `wrangler secret put` or wrangler.toml):
+# - APP_STORE_URL: iOS App Store URL for download button
+# - PLAY_STORE_URL: Google Play Store URL for download button
+# - APP_SCHEME: Custom scheme for opening app (default: "delta")
+
+[env.production.vars]
+APP_SCHEME = "delta"

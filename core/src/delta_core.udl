@@ -1,0 +1,328 @@
+// Delta Core — UniFFI Interface Definition
+
+namespace delta_core {
+    // ── Phase 1: Identity ──────────────────────────────────────────────────
+    KeyPair generate_keypair();
+    [Throws=KeyError]
+    KeyPair import_from_mnemonic(sequence<string> words);
+
+    // ── Phase 2: Core init ─────────────────────────────────────────────────
+    [Throws=CoreError]
+    void init_core(string private_key_hex, string db_dir, sequence<BootstrapNode> bootstrap_nodes);
+
+    // ── Phase 2: Profile ───────────────────────────────────────────────────
+    [Throws=CoreError]
+    void create_or_update_profile(string username, string? bio, sequence<string> available_for, boolean is_public);
+
+    Profile? get_my_profile();
+
+    Profile? get_profile(string public_key);
+
+    // ── Phase 2: Organizations ─────────────────────────────────────────────
+    [Throws=CoreError]
+    string create_org(string name, string type_label, string? description, boolean is_public);
+
+    sequence<OrgSummary> list_my_orgs();
+
+    [Throws=CoreError]
+    void update_org(
+        string org_id,
+        string? name,
+        string? type_label,
+        string? description,
+        string? avatar_blob_id,
+        string? cover_blob_id,
+        boolean? is_public
+    );
+
+    // ── Phase 2: Rooms ─────────────────────────────────────────────────────
+    [Throws=CoreError]
+    string create_room(string org_id, string name);
+
+    sequence<Room> list_rooms(string org_id, boolean include_archived);
+
+    [Throws=CoreError]
+    void update_room(string org_id, string room_id, string? name);
+
+    [Throws=CoreError]
+    void delete_room(string org_id, string room_id);
+
+    [Throws=CoreError]
+    void archive_room(string org_id, string room_id);
+
+    [Throws=CoreError]
+    void unarchive_room(string org_id, string room_id);
+
+    // ── Phase 2: Messages ──────────────────────────────────────────────────
+    [Throws=CoreError]
+    string send_message(
+        string? room_id,
+        string? dm_thread_id,
+        string content_type,
+        string? text_content,
+        string? blob_id,
+        string? embed_url,
+        sequence<string> mentions,
+        string? reply_to
+    );
+
+    sequence<Message> list_messages(
+        string? room_id,
+        string? dm_thread_id,
+        u32 limit,
+        i64? before_timestamp
+    );
+
+    // ── Phase 2: DM Threads ────────────────────────────────────────────────
+    [Throws=CoreError]
+    string create_dm_thread(string recipient_key);
+
+    sequence<DmThread> list_dm_threads();
+
+    // ── Phase 3: Networking ────────────────────────────────────────────────
+    ConnectionStatus get_connection_status();
+
+    [Throws=CoreError]
+    void subscribe_room_topic(string room_id);
+
+    [Throws=CoreError]
+    void subscribe_dm_topic(string thread_id);
+
+    sequence<OrgSummary> search_public_orgs(string query);
+
+    // ── pkarr public profiles ─────────────────────────────────────────────────
+    [Throws=CoreError]
+    string get_pkarr_url(string public_key_hex);
+
+    [Throws=CoreError]
+    PkarrResolved? resolve_pkarr(string z32_key);
+
+    // ── Phase 5: Membership & Auth ─────────────────────────────────────────
+    [Throws=AuthError]
+    string generate_invite_token(
+        string org_id,
+        string access_level,
+        i64 expiry_timestamp
+    );
+
+    [Throws=AuthError]
+    InviteTokenInfo verify_invite_token(string token_base64, i64 current_timestamp);
+
+    [Throws=AuthError]
+    void add_member_direct(
+        string org_id,
+        string member_public_key,
+        string access_level
+    );
+
+    [Throws=AuthError]
+    void remove_member_from_org(
+        string org_id,
+        string member_public_key
+    );
+
+    [Throws=AuthError]
+    void change_member_permission(
+        string org_id,
+        string member_public_key,
+        string new_access_level
+    );
+
+    sequence<MemberInfo> list_org_members(string org_id);
+
+    // ── Phase 7: Blobs ─────────────────────────────────────────────────────
+    [Throws=BlobError]
+    string upload_blob(bytes data, string mime_type, string? room_id);
+
+    [Throws=BlobError]
+    bytes get_blob(string blob_hash);
+
+    // ── Onion routing ──────────────────────────────────────────────────────
+    [Throws=OnionError]
+    bytes build_onion_packet(
+        sequence<OnionHopFfi> hops,
+        bytes topic_id,
+        bytes op
+    );
+
+    [Throws=OnionError]
+    OnionPeeled peel_onion_layer(bytes packet, string recipient_seed_hex);
+
+    // ── Sync ───────────────────────────────────────────────────────────────
+    [Throws=SyncFfiError]
+    void ingest_op_ffi(string topic_hex, i64 seq, bytes op_bytes);
+
+    [Throws=SyncFfiError]
+    i64 get_topic_seq_ffi(string topic_hex);
+};
+
+// ── Phase 1 types ─────────────────────────────────────────────────────────────
+
+[Error]
+enum KeyError {
+    "InvalidMnemonic",
+    "InvalidPrivateKey",
+};
+
+dictionary KeyPair {
+    string private_key_hex;
+    string public_key_hex;
+    string mnemonic;
+};
+
+// ── Phase 2 types ─────────────────────────────────────────────────────────────
+
+[Error]
+enum CoreError {
+    "NotInitialised",
+    "StoreError",
+    "DbError",
+    "OpsError",
+    "InvalidInput",
+};
+
+dictionary Profile {
+    string public_key;
+    string username;
+    string? avatar_blob_id;
+    string? bio;
+    sequence<string> available_for;
+    boolean is_public;
+    i64 created_at;
+    i64 updated_at;
+};
+
+dictionary PkarrResolved {
+    string record_type;
+    string? name;
+    string? username;
+    string? description;
+    string? bio;
+    string? avatar_blob_id;
+    string? cover_blob_id;
+    string public_key;
+};
+
+dictionary OrgSummary {
+    string org_id;
+    string name;
+    string type_label;
+    string? description;
+    string? avatar_blob_id;
+    string? cover_blob_id;
+    boolean is_public;
+    string creator_key;
+    i64 created_at;
+};
+
+dictionary Room {
+    string room_id;
+    string org_id;
+    string name;
+    string created_by;
+    i64 created_at;
+    u64 enc_key_epoch;
+    boolean is_archived;
+    i64? archived_at;
+};
+
+dictionary Message {
+    string message_id;
+    string? room_id;
+    string? dm_thread_id;
+    string author_key;
+    string content_type;
+    string? text_content;
+    string? blob_id;
+    string? embed_url;
+    sequence<string> mentions;
+    string? reply_to;
+    i64 timestamp;
+    i64? edited_at;
+    boolean is_deleted;
+};
+
+dictionary DmThread {
+    string thread_id;
+    string initiator_key;
+    string recipient_key;
+    i64 created_at;
+    i64? last_message_at;
+};
+
+// ── Phase 3 types ─────────────────────────────────────────────────────────────
+
+enum ConnectionStatus {
+    "Online",
+    "Connecting",
+    "Offline",
+};
+
+dictionary BootstrapNode {
+    string node_id_hex;
+    string relay_url;
+};
+
+// ── Phase 5 types ─────────────────────────────────────────────────────────────
+
+[Error]
+enum AuthError {
+    "InvalidSignature",
+    "TokenExpired",
+    "Unauthorized",
+    "NotInitialised",
+};
+
+dictionary InviteTokenInfo {
+    string org_id;
+    string inviter_key;
+    string access_level;
+    i64 expiry_timestamp;
+};
+
+dictionary MemberInfo {
+    string public_key;
+    string access_level;
+    i64 joined_at;
+};
+
+// ── Phase 7 types ─────────────────────────────────────────────────────────────
+
+[Error]
+enum BlobError {
+    "NotInitialized",
+    "NotFound",
+    "StoreError",
+    "IoError",
+};
+
+// ── Onion routing types ───────────────────────────────────────────────────────
+
+dictionary OnionHopFfi {
+    string pubkey_hex;
+    string next_url;
+};
+
+dictionary OnionPeeled {
+    string peel_type;
+    string? next_hop_url;
+    bytes? inner_packet;
+    bytes? topic_id;
+    bytes? op;
+};
+
+[Error]
+enum OnionError {
+    "EmptyRoute",
+    "InvalidEnvelope",
+    "UnsupportedVersion",
+    "Encrypt",
+    "Decrypt",
+    "InvalidPayload",
+    "InvalidKey",
+};
+
+// ── Sync types ────────────────────────────────────────────────────────────────
+
+[Error]
+enum SyncFfiError { "Error" };
