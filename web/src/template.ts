@@ -65,7 +65,7 @@ const commonStyles = `
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 16px;
     position: relative;
   }
   .bg-waves {
@@ -82,11 +82,11 @@ const commonStyles = `
   }
   .main-card {
     background: #ffffff;
-    border-radius: 24px;
+    border-radius: 20px;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1), 0 10px 40px -10px rgba(0, 0, 0, 0.1);
-    max-width: 480px;
+    max-width: 440px;
     width: 100%;
-    padding: 40px;
+    padding: 28px;
     position: relative;
     z-index: 1;
     animation: fadeInUp 0.5s ease-out;
@@ -98,83 +98,97 @@ const commonStyles = `
   .logo {
     display: flex;
     justify-content: center;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
+  }
+  .logo svg {
+    width: 40px;
+    height: 40px;
   }
   .header {
     text-align: center;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
   .title {
-    font-size: 28px;
+    font-size: 24px;
     font-weight: 700;
     color: #111827;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     letter-spacing: -0.025em;
   }
   .handle {
     font-family: 'SF Mono', Monaco, Consolas, monospace;
-    font-size: 14px;
+    font-size: 12px;
     color: #6b7280;
     word-break: break-all;
   }
   .badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     background: #f3f4f6;
     color: #4b5563;
-    font-size: 13px;
-    padding: 6px 14px;
-    border-radius: 20px;
-    margin-top: 12px;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    margin-top: 8px;
     font-weight: 500;
   }
   .badge-icon {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
+  }
+  .avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin: 0 auto 12px;
+    display: block;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  .avatar-placeholder {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+    color: #fff;
+    font-size: 32px;
+    font-weight: 600;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   }
   .description {
     text-align: center;
     color: #4b5563;
-    font-size: 15px;
-    line-height: 1.6;
-    margin: 24px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 16px 0;
   }
   .app-card {
-    background: #ffffff;
+    background: #f9fafb;
     border: 1px solid #e5e7eb;
-    border-radius: 16px;
-    padding: 24px;
-    margin-top: 24px;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
   }
   .app-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
   .app-name {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 600;
     color: #111827;
-    margin-bottom: 4px;
-  }
-  .app-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #3B82F6, #8B5CF6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
-    flex-shrink: 0;
+    margin-bottom: 2px;
   }
   .app-description {
-    font-size: 14px;
-    color: #4b5563;
-    line-height: 1.5;
-    margin-bottom: 16px;
+    font-size: 13px;
+    color: #6b7283;
+    line-height: 1.4;
   }
   .learn-more {
     color: #3B82F6;
@@ -187,33 +201,33 @@ const commonStyles = `
   .platforms {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 14px;
+    gap: 6px;
+    font-size: 12px;
     color: #6b7280;
-    margin-bottom: 20px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid #f3f4f6;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e5e7eb;
   }
   .platform-icon {
-    font-size: 16px;
+    font-size: 14px;
   }
   .instructions {
-    font-size: 14px;
+    font-size: 13px;
     color: #374151;
-    line-height: 1.6;
-    margin-bottom: 16px;
+    line-height: 1.5;
+    margin-bottom: 10px;
   }
   .copy-box {
     display: flex;
     align-items: center;
     gap: 8px;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
     font-family: 'SF Mono', Monaco, Consolas, monospace;
-    font-size: 12px;
+    font-size: 11px;
     color: #6b7280;
     word-break: break-all;
   }
@@ -236,31 +250,31 @@ const commonStyles = `
   .btn-primary {
     display: block;
     width: 100%;
-    padding: 14px 24px;
-    background: linear-gradient(135deg, #0ea5e9, #0284c7);
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #3B82F6, #2563eb);
     color: #ffffff;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     text-decoration: none;
     text-align: center;
-    border-radius: 12px;
+    border-radius: 10px;
     border: none;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 4px 6px -1px rgba(14, 165, 233, 0.2);
+    box-shadow: 0 2px 4px -1px rgba(59, 130, 246, 0.3);
   }
   .btn-primary:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 12px -2px rgba(14, 165, 233, 0.3);
+    box-shadow: 0 4px 8px -2px rgba(59, 130, 246, 0.4);
   }
   .alternative {
     text-align: center;
-    margin-top: 16px;
-    font-size: 13px;
+    margin-top: 12px;
+    font-size: 12px;
     color: #6b7280;
   }
   .alternative a {
-    color: #0ea5e9;
+    color: #3B82F6;
     text-decoration: none;
     font-weight: 500;
   }
@@ -269,36 +283,36 @@ const commonStyles = `
   }
   .footer {
     text-align: center;
-    margin-top: 24px;
-    font-size: 13px;
+    margin-top: 16px;
+    font-size: 12px;
     color: #9ca3af;
   }
   .footer a {
-    color: #0ea5e9;
+    color: #3B82F6;
     text-decoration: none;
   }
   .footer a:hover {
     text-decoration: underline;
   }
   .brand-footer {
-    margin-top: 32px;
+    margin-top: 20px;
     text-align: center;
     position: relative;
     z-index: 1;
   }
   .brand-logo {
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 700;
-    color: #111827;
+    color: #6b7280;
     letter-spacing: -0.02em;
   }
   @media (max-width: 520px) {
     .main-card {
-      padding: 28px 20px;
-      border-radius: 20px;
+      padding: 20px 16px;
+      border-radius: 16px;
     }
     .title {
-      font-size: 24px;
+      font-size: 22px;
     }
   }
 `;
@@ -333,9 +347,10 @@ export function renderProfilePage(record: ResolvedRecord, options: RenderOptions
   <div class="bg-waves"></div>
   
   <div class="main-card">
-    <div class="logo">
-      ${deltaLogoSvg}
-    </div>
+    ${avatarUrl
+      ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(title)}" class="avatar">`
+      : `<div class="avatar-placeholder">${escapeHtml(title.charAt(0).toUpperCase())}</div>`
+    }
     
     <div class="header">
       <h1 class="title">${escapeHtml(title)}</h1>
@@ -350,14 +365,11 @@ export function renderProfilePage(record: ResolvedRecord, options: RenderOptions
     
     <div class="app-card">
       <div class="app-header">
-        <div>
-          <div class="app-name">Delta Messenger</div>
-          <div class="app-description">
-            Connect securely on the Delta network.
-            <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
-          </div>
+        <div class="app-name">Delta Messenger</div>
+        <div class="app-description">
+          Connect securely on the Delta network.
+          <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
         </div>
-        <div class="app-icon">💬</div>
       </div>
       
       <div class="platforms">
@@ -392,7 +404,7 @@ export function renderProfilePage(record: ResolvedRecord, options: RenderOptions
   </div>
   
   <div class="brand-footer">
-    <span class="brand-logo">delta</span>
+    <span class="brand-logo">delta Δ</span>
   </div>
   
   <script>
@@ -441,9 +453,10 @@ export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): s
   <div class="bg-waves"></div>
   
   <div class="main-card">
-    <div class="logo">
-      ${deltaLogoSvg}
-    </div>
+    ${avatarUrl
+      ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(orgName)}" class="avatar">`
+      : `<div class="avatar-placeholder">${escapeHtml(orgName.charAt(0).toUpperCase())}</div>`
+    }
     
     <div class="header">
       <h1 class="title">${escapeHtml(orgName)}</h1>
@@ -458,14 +471,11 @@ export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): s
     
     <div class="app-card">
       <div class="app-header">
-        <div>
-          <div class="app-name">Delta for Teams</div>
-          <div class="app-description">
-            Join this organization for secure, end-to-end encrypted team communication.
-            <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
-          </div>
+        <div class="app-name">Delta for Teams</div>
+        <div class="app-description">
+          Join this organization for secure, end-to-end encrypted team communication.
+          <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
         </div>
-        <div class="app-icon">🏢</div>
       </div>
       
       <div class="platforms">
@@ -500,7 +510,7 @@ export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): s
   </div>
   
   <div class="brand-footer">
-    <span class="brand-logo">delta</span>
+    <span class="brand-logo">delta Δ</span>
   </div>
   
   <script>
@@ -544,10 +554,6 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
   <div class="bg-waves"></div>
   
   <div class="main-card">
-    <div class="logo">
-      ${deltaLogoSvg}
-    </div>
-    
     <div class="header">
       <h1 class="title">${escapeHtml(relayName)}</h1>
       <div class="handle">${escapeHtml(displayHandle)}</div>
@@ -564,14 +570,11 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
     
     <div class="app-card">
       <div class="app-header">
-        <div>
-          <div class="app-name">Delta Messenger</div>
-          <div class="app-description">
-            Use this relay for enhanced privacy and reliability.
-            <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
-          </div>
+        <div class="app-name">Delta Messenger</div>
+        <div class="app-description">
+          Use this relay for enhanced privacy and reliability.
+          <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
         </div>
-        <div class="app-icon" style="background: linear-gradient(135deg, #10b981, #059669);">📡</div>
       </div>
       
       <div class="platforms">
@@ -606,7 +609,7 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
   </div>
   
   <div class="brand-footer">
-    <span class="brand-logo">delta</span>
+    <span class="brand-logo">delta Δ</span>
   </div>
   
   <script>
