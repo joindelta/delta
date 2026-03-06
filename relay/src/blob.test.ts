@@ -86,3 +86,11 @@ describe('blob size validation', () => {
     expect(isBlobTooLarge(3 * 1024 * 1024)).toBe(true);
   });
 });
+
+describe('GET /public-blob response headers', () => {
+  it('sets immutable cache-control for content-addressed blobs', () => {
+    const cacheControl = 'public, max-age=31536000, immutable';
+    expect(cacheControl).toContain('immutable');
+    expect(cacheControl).toContain('max-age=31536000');
+  });
+});

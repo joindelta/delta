@@ -123,6 +123,31 @@ export default {
       return new Response(null, { status: 204 });
     }
 
+    // ── GET /public-blob/:blobId — serve a stored public blob ──────────────────
+    if (request.method === 'GET' && url.pathname.startsWith('/public-blob/')) {
+      const blobId = url.pathname.slice('/public-blob/'.length).toLowerCase();
+
+      if (!/^[0-9a-f]{64}$/.test(blobId)) {
+        return new Response('invalid blob id', { status: 400 });
+      }
+
+      const { value, metadata } = await env.PUBLIC_BLOBS.getWithMetadata<{ mimeType: string }>(
+        blobId,
+        'arrayBuffer',
+      );
+
+      if (!value) {
+        return new Response('not found', { status: 404 });
+      }
+
+      return new Response(value, {
+        headers: {
+          'Content-Type': metadata?.mimeType ?? 'application/octet-stream',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      });
+    }
+
     return new Response('not found', { status: 404 });
   },
 
