@@ -33,18 +33,19 @@ pub fn parse_pkarr_url(url: &str) -> Option<String> {
 }
 
 /// Build a DNS TXT record for a user profile.
-/// Format: `v=delta1;t=user;u=<username>;b=<bio>;a=<avatar_blob_id>`
+/// Format: `v=gardens1;t=user;u=<username>;b=<bio>;a=<avatar_blob_id>;rl=<relay_z32>`
 fn build_user_txt_record(
     username: &str,
     bio: Option<&str>,
     avatar_blob_id: Option<&str>,
+    relay_z32: Option<&str>,
 ) -> String {
     let mut parts = vec![
-        "v=delta1".to_string(),
+        "v=gardens1".to_string(),
         "t=user".to_string(),
         format!("u={}", username),
     ];
-    
+
     if let Some(bio_str) = bio {
         if !bio_str.is_empty() {
             // Truncate bio to stay within packet limits
@@ -56,28 +57,33 @@ fn build_user_txt_record(
             parts.push(format!("b={}", truncated));
         }
     }
-    
+
     if let Some(avatar) = avatar_blob_id {
         parts.push(format!("a={}", avatar));
     }
-    
+
+    if let Some(relay) = relay_z32 {
+        parts.push(format!("rl={}", relay));
+    }
+
     parts.join(";")
 }
 
 /// Build a DNS TXT record for an org profile.
-/// Format: `v=delta1;t=org;n=<name>;d=<description>;a=<avatar_blob_id>;c=<cover_blob_id>`
+/// Format: `v=gardens1;t=org;n=<name>;d=<description>;a=<avatar_blob_id>;c=<cover_blob_id>;rl=<relay_z32>`
 fn build_org_txt_record(
     name: &str,
     description: Option<&str>,
     avatar_blob_id: Option<&str>,
     cover_blob_id: Option<&str>,
+    relay_z32: Option<&str>,
 ) -> String {
     let mut parts = vec![
-        "v=delta1".to_string(),
+        "v=gardens1".to_string(),
         "t=org".to_string(),
         format!("n={}", name),
     ];
-    
+
     if let Some(desc) = description {
         if !desc.is_empty() {
             // Truncate description to stay within packet limits
@@ -89,15 +95,19 @@ fn build_org_txt_record(
             parts.push(format!("d={}", truncated));
         }
     }
-    
+
     if let Some(avatar) = avatar_blob_id {
         parts.push(format!("a={}", avatar));
     }
-    
+
     if let Some(cover) = cover_blob_id {
         parts.push(format!("c={}", cover));
     }
-    
+
+    if let Some(relay) = relay_z32 {
+        parts.push(format!("rl={}", relay));
+    }
+
     parts.join(";")
 }
 
@@ -107,18 +117,19 @@ pub async fn publish_profile(
     username: &str,
     bio: Option<&str>,
     avatar_blob_id: Option<&str>,
+    relay_z32: Option<&str>,
 ) -> Result<(), String> {
     let pk_bytes = hex::decode(private_key_hex).map_err(|e| format!("invalid hex: {}", e))?;
     let pk_arr: [u8; 32] = pk_bytes.as_slice().try_into()
         .map_err(|_| "invalid key length".to_string())?;
-    
+
     let keypair = Keypair::from_secret_key(&pk_arr);
-    
-    let txt_value = build_user_txt_record(username, bio, avatar_blob_id);
+
+    let txt_value = build_user_txt_record(username, bio, avatar_blob_id, relay_z32);
 
     let txt = pkarr::dns::rdata::TXT::try_from(txt_value.as_str())
         .map_err(|e| format!("invalid txt: {}", e))?;
-    let name = pkarr::dns::Name::new("_delta")
+    let name = pkarr::dns::Name::new("_gardens")
         .map_err(|e| format!("invalid name: {}", e))?;
     let signed_packet = SignedPacket::builder()
         .txt(name, txt, DNS_TTL)
@@ -151,7 +162,7 @@ pub async fn publish_org(
     avatar_blob_id: Option<&str>,
     cover_blob_id: Option<&str>,
 ) -> Result<(), String> {
-    publish_org_with_key(private_key_hex, org_id, name, description, avatar_blob_id, cover_blob_id).await
+    publish_org_with_key(private_key_hex, org_id, name, description, avatar_blob_id, cover_blob_id, None).await
 }
 
 /// Publish an org profile to the pkarr DHT using the org's own key.
@@ -163,18 +174,19 @@ pub async fn publish_org_with_key(
     description: Option<&str>,
     avatar_blob_id: Option<&str>,
     cover_blob_id: Option<&str>,
+    relay_z32: Option<&str>,
 ) -> Result<(), String> {
     let pk_bytes = hex::decode(private_key_hex).map_err(|e| format!("invalid hex: {}", e))?;
     let pk_arr: [u8; 32] = pk_bytes.as_slice().try_into()
         .map_err(|_| "invalid key length".to_string())?;
-    
+
     let keypair = Keypair::from_secret_key(&pk_arr);
-    
-    let txt_value = build_org_txt_record(name, description, avatar_blob_id, cover_blob_id);
+
+    let txt_value = build_org_txt_record(name, description, avatar_blob_id, cover_blob_id, relay_z32);
 
     let txt = pkarr::dns::rdata::TXT::try_from(txt_value.as_str())
         .map_err(|e| format!("invalid txt: {}", e))?;
-    let rec_name = pkarr::dns::Name::new("_delta")
+    let rec_name = pkarr::dns::Name::new("_gardens")
         .map_err(|e| format!("invalid name: {}", e))?;
     let signed_packet = SignedPacket::builder()
         .txt(rec_name, txt, DNS_TTL)
@@ -206,9 +218,9 @@ pub async fn publish_tombstone(private_key_hex: &str) -> Result<(), String> {
     
     let keypair = Keypair::from_secret_key(&pk_arr);
     
-    let txt = pkarr::dns::rdata::TXT::try_from("v=delta1;t=none")
+    let txt = pkarr::dns::rdata::TXT::try_from("v=gardens1;t=none")
         .map_err(|e| format!("invalid txt: {}", e))?;
-    let name = pkarr::dns::Name::new("_delta")
+    let name = pkarr::dns::Name::new("_gardens")
         .map_err(|e| format!("invalid name: {}", e))?;
     let signed_packet = SignedPacket::builder()
         .txt(name, txt, 60) // Short TTL for tombstone
@@ -302,7 +314,7 @@ pub async fn resolve_pkarr(z32_key: &str) -> Result<Option<PkarrResolvedRecord>,
             for rr in signed_packet.all_resource_records() {
                 if let pkarr::dns::rdata::RData::TXT(txt) = &rr.rdata {
                     if let Ok(txt_str) = String::try_from(txt.clone()) {
-                        if txt_str.starts_with("v=delta1") {
+                        if txt_str.starts_with("v=gardens1") {
                             return Ok(Some(parse_txt_record(&txt_str, z32_key)?));
                         }
                     }
@@ -334,16 +346,16 @@ mod tests {
 
     #[test]
     fn parse_relay_record() {
-        let txt = format!("v=delta1;t=relay;n=https://relay.delta.app/hop;a={}", "ab".repeat(32));
+        let txt = format!("v=gardens1;t=relay;n=https://relay.gardens.app/hop;a={}", "ab".repeat(32));
         let record = parse_txt_record(&txt, "testz32key").unwrap();
         assert_eq!(record.record_type, "relay");
-        assert_eq!(record.name.as_deref(), Some("https://relay.delta.app/hop"));
+        assert_eq!(record.name.as_deref(), Some("https://relay.gardens.app/hop"));
         assert_eq!(record.avatar_blob_id.as_deref(), Some(&"ab".repeat(32) as &str));
     }
 
     #[test]
     fn parse_user_record_still_works() {
-        let txt = "v=delta1;t=user;u=alice;b=hello";
+        let txt = "v=gardens1;t=user;u=alice;b=hello";
         let record = parse_txt_record(txt, "testz32key").unwrap();
         assert_eq!(record.record_type, "user");
         assert_eq!(record.username.as_deref(), Some("alice"));
@@ -377,7 +389,7 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
         let bio: Option<String> = row.get("bio");
         let avatar: Option<String> = row.get("avatar_blob_id");
 
-        if let Err(e) = publish_profile(&private_key_hex, &username, bio.as_deref(), avatar.as_deref()).await {
+        if let Err(e) = publish_profile(&private_key_hex, &username, bio.as_deref(), avatar.as_deref(), None).await {
             log::error!("[pkarr] failed to republish profile {}: {}", public_key, e);
         }
     }
@@ -404,16 +416,16 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
         if let (Some(_pubkey), Some(encrypted_key)) = (org_pubkey, org_privkey_enc) {
             // Decrypt the org's private key
             if let Some(org_seed) = decrypt_org_privkey(&encrypted_key, &user_signing_key) {
-                let org_keypair = ed25519_dalek::SigningKey::from_bytes(&org_seed);
-                let org_pk_hex = hex::encode(org_keypair.verifying_key().as_bytes());
+                let org_pk_hex = hex::encode(org_seed);
                 
                 if let Err(e) = publish_org_with_key(
-                    &org_pk_hex, 
-                    &org_id, 
-                    &name, 
-                    description.as_deref(), 
-                    avatar.as_deref(), 
-                    cover.as_deref()
+                    &org_pk_hex,
+                    &org_id,
+                    &name,
+                    description.as_deref(),
+                    avatar.as_deref(),
+                    cover.as_deref(),
+                    None,
                 ).await {
                     log::error!("[pkarr] failed to republish org {}: {}", org_id, e);
                 }

@@ -1,4 +1,4 @@
-uniffi::include_scaffolding!("delta_core");
+uniffi::include_scaffolding!("gardens_core");
 
 pub mod auth;
 pub mod blobs;
@@ -214,7 +214,7 @@ use p2panda_encryption::key_manager::KeyManager;
 use p2panda_encryption::traits::PreKeyManager;
 use regex::Regex;
 
-use db::{DmThreadRow, MessageRow, OrgRow, ProfileRow, RoomRow};
+use db::{DmThreadRow, MessageRow, OrgRow, ProfileRow, RoomRow, EventRow, EventRsvpRow};
 use sqlx::Row;
 
 /// Regex pattern for valid sluggified channel names:
@@ -315,6 +315,9 @@ pub struct OrgSummary {
     pub description: Option<String>,
     pub avatar_blob_id: Option<String>,
     pub cover_blob_id: Option<String>,
+    pub welcome_text: Option<String>,
+    pub custom_emoji_json: Option<String>,
+    pub org_cooldown_secs: Option<i64>,
     pub is_public: bool,
     pub creator_key: String,
     pub org_pubkey: Option<String>,  // NEW: Org's public key for pkarr
@@ -330,6 +333,29 @@ pub struct Room {
     pub enc_key_epoch: u64,
     pub is_archived: bool,
     pub archived_at: Option<i64>,
+    pub room_cooldown_secs: Option<i64>,
+}
+
+pub struct Event {
+    pub event_id: String,
+    pub org_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub location_type: String,
+    pub location_text: Option<String>,
+    pub location_room_id: Option<String>,
+    pub start_at: i64,
+    pub end_at: Option<i64>,
+    pub created_by: String,
+    pub created_at: i64,
+    pub is_deleted: bool,
+}
+
+pub struct EventRsvp {
+    pub event_id: String,
+    pub member_key: String,
+    pub status: String,
+    pub updated_at: i64,
 }
 
 pub struct Message {
@@ -346,6 +372,17 @@ pub struct Message {
     pub timestamp: i64,
     pub edited_at: Option<i64>,
     pub is_deleted: bool,
+}
+
+pub struct Reaction {
+    pub message_id: String,
+    pub emoji: String,
+    pub reactor_key: String,
+}
+
+pub struct IceInfo {
+    pub public_key: String,
+    pub iced_until: i64,
 }
 
 pub struct DmThread {
@@ -379,6 +416,9 @@ fn org_from_row(row: OrgRow) -> OrgSummary {
         description: row.description,
         avatar_blob_id: row.avatar_blob_id,
         cover_blob_id: row.cover_blob_id,
+        welcome_text: row.welcome_text,
+        custom_emoji_json: row.custom_emoji_json,
+        org_cooldown_secs: row.org_cooldown_secs,
         is_public: row.is_public != 0,
         creator_key: row.creator_key,
         org_pubkey: row.org_pubkey,
@@ -396,6 +436,33 @@ fn room_from_row(row: RoomRow) -> Room {
         enc_key_epoch: row.enc_key_epoch,
         is_archived: row.is_archived,
         archived_at: row.archived_at,
+        room_cooldown_secs: row.room_cooldown_secs,
+    }
+}
+
+fn event_from_row(row: EventRow) -> Event {
+    Event {
+        event_id: row.event_id,
+        org_id: row.org_id,
+        title: row.title,
+        description: row.description,
+        location_type: row.location_type,
+        location_text: row.location_text,
+        location_room_id: row.location_room_id,
+        start_at: row.start_at,
+        end_at: row.end_at,
+        created_by: row.created_by,
+        created_at: row.created_at,
+        is_deleted: row.is_deleted,
+    }
+}
+
+fn event_rsvp_from_row(row: EventRsvpRow) -> EventRsvp {
+    EventRsvp {
+        event_id: row.event_id,
+        member_key: row.member_key,
+        status: row.status,
+        updated_at: row.updated_at,
     }
 }
 
@@ -520,6 +587,7 @@ pub fn create_or_update_profile(
                 &username,
                 bio.as_deref(),
                 None, // avatar_blob_id
+                None, // relay_z32
             ).await {
                 log::error!("[pkarr] Failed to publish profile: {}", e);
             } else {
@@ -578,6 +646,7 @@ pub fn create_org(
                 .try_into().map_err(|_| CoreError::InvalidInput("invalid key length".into()))?
         );
         let (org_pubkey_z32, org_privkey_enc) = generate_org_keypair(&user_signing_key);
+        let org_privkey_enc_for_publish = org_privkey_enc.clone();
 
         // Acquire the lock once for both publishes to avoid contention with
         // the projector, which also holds op_store for its entire tick cycle.
@@ -594,6 +663,8 @@ pub fn create_org(
                     description: description.clone(),
                     avatar_blob_id: None,
                     cover_blob_id: None,
+                    welcome_text: None,
+                    custom_emoji_json: None,
                     is_public,
                 },
             )
@@ -622,6 +693,9 @@ pub fn create_org(
                 description: description.clone(),
                 avatar_blob_id: None,
                 cover_blob_id: None,
+                welcome_text: None,
+                custom_emoji_json: None,
+                org_cooldown_secs: None,
                 is_public: is_public as i64,
                 creator_key: core.public_key_hex.clone(),
                 org_pubkey: Some(org_pubkey_z32),
@@ -644,6 +718,7 @@ pub fn create_org(
                 enc_key_epoch: 0,
                 is_archived: false,
                 archived_at: None,
+                room_cooldown_secs: None,
             },
         )
         .await?;
@@ -653,6 +728,24 @@ pub fn create_org(
         let initial_members = vec![core.private_key.public_key()];
         if let Err(e) = encryption::init_room_group(&room_id, initial_members).await {
             log::warn!("Failed to initialize general room encryption group: {}", e);
+        }
+
+        // Publish to pkarr immediately if org is public
+        if is_public {
+            if let Some(org_seed) = decrypt_org_privkey(&org_privkey_enc_for_publish, &user_signing_key) {
+                let org_pk_hex = hex::encode(org_seed);
+                if let Err(e) = pkarr_publish::publish_org_with_key(
+                    &org_pk_hex,
+                    &org_id,
+                    &name,
+                    description.as_deref(),
+                    None,
+                    None,
+                    None, // relay_z32
+                ).await {
+                    log::error!("[pkarr] failed to publish new org: {}", e);
+                }
+            }
         }
 
         // op delivered via onion routing from the app layer
@@ -667,12 +760,33 @@ pub fn list_my_orgs() -> Vec<OrgSummary> {
             Some(c) => c,
             None => return vec![],
         };
-        db::list_orgs_for_member(&core.read_pool, &core.public_key_hex)
+        let mut rows = db::list_orgs_for_member(&core.read_pool, &core.public_key_hex)
             .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(org_from_row)
-            .collect()
+            .unwrap_or_default();
+
+        // Backfill missing org_pubkey so clients resolve the correct pkarr URL.
+        let user_signing_key = match ed25519_dalek::SigningKey::from_bytes(
+            &hex::decode(core.private_key.to_hex()).unwrap_or_default()
+                .try_into().unwrap_or([0u8; 32])
+        ) {
+            key => key,
+        };
+
+        for row in rows.iter_mut() {
+            if row.org_pubkey.is_none() {
+                if let Some(encrypted_key) = row.org_privkey_enc.as_ref() {
+                    if let Some(org_seed) = decrypt_org_privkey(encrypted_key, &user_signing_key) {
+                        let org_keypair = ed25519_dalek::SigningKey::from_bytes(&org_seed);
+                        let z32_pubkey = z32::encode(org_keypair.verifying_key().as_bytes());
+                        if db::set_org_pubkey(&core.read_pool, &row.org_id, &z32_pubkey).await.is_ok() {
+                            row.org_pubkey = Some(z32_pubkey);
+                        }
+                    }
+                }
+            }
+        }
+
+        rows.into_iter().map(org_from_row).collect()
     })
 }
 
@@ -716,6 +830,7 @@ pub fn create_room(org_id: String, name: String) -> Result<String, CoreError> {
                 enc_key_epoch: 0,
                 is_archived: false,
                 archived_at: None,
+                room_cooldown_secs: None,
             },
         )
         .await?;
@@ -902,9 +1017,17 @@ pub fn update_org(
     description: Option<String>,
     avatar_blob_id: Option<String>,
     cover_blob_id: Option<String>,
+    welcome_text: Option<String>,
+    custom_emoji_json: Option<String>,
+    org_cooldown_secs: Option<i64>,
     is_public: Option<bool>,
 ) -> Result<(), CoreError> {
     store::block_on(async move {
+        log::info!(
+            "[update_org] org_id={} is_public={:?}",
+            org_id,
+            is_public
+        );
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
         let pool = &core.read_pool;
 
@@ -948,6 +1071,9 @@ pub fn update_org(
             description: description.clone(),
             avatar_blob_id: avatar_blob_id.clone(),
             cover_blob_id: cover_blob_id.clone(),
+            welcome_text: welcome_text.clone(),
+            custom_emoji_json: custom_emoji_json.clone(),
+            org_cooldown_secs,
             is_public,
         };
 
@@ -975,16 +1101,28 @@ pub fn update_org(
             description.as_deref(),
             avatar_blob_id.as_deref(),
             cover_blob_id.as_deref(),
+            welcome_text.as_deref(),
+            custom_emoji_json.as_deref(),
+            org_cooldown_secs,
             is_public,
         ).await?;
         
+        // Backfill org_pubkey if it was clobbered by older projector inserts.
+        let mut org_pubkey_z32 = org_row.org_pubkey.clone();
+        if org_pubkey_z32.is_none() {
+            let z32_pubkey = z32::encode(org_private_key.public_key().as_bytes());
+            if db::set_org_pubkey(pool, &org_id, &z32_pubkey).await.is_ok() {
+                org_pubkey_z32 = Some(z32_pubkey);
+            }
+        }
+
         // Publish to pkarr if public
         if is_public == Some(true) || (is_public.is_none() && org_row.is_public != 0) {
-            if org_row.org_pubkey.is_some() {
-                let pk_hex = hex::encode(org_private_key.public_key().as_bytes());
+            if org_pubkey_z32.is_some() {
+                let pk_hex = hex::encode(org_private_key.as_bytes());
                 let org_name = name.as_deref().unwrap_or(&org_row.name);
                 let org_desc = description.as_deref().or(org_row.description.as_deref());
-                
+
                 if let Err(e) = pkarr_publish::publish_org_with_key(
                     &pk_hex,
                     &org_id,
@@ -992,6 +1130,7 @@ pub fn update_org(
                     org_desc,
                     avatar_blob_id.as_deref(),
                     cover_blob_id.as_deref(),
+                    None, // relay_z32
                 ).await {
                     log::error!("[pkarr] failed to publish org update: {}", e);
                 }
@@ -1042,6 +1181,9 @@ pub fn delete_org(org_id: String) -> Result<(), CoreError> {
             description: None,
             avatar_blob_id: None,
             cover_blob_id: None,
+            welcome_text: None,
+            custom_emoji_json: None,
+            org_cooldown_secs: None,
             is_public: None,
         };
 
@@ -1229,6 +1371,7 @@ pub fn update_room(
     org_id: String,
     room_id: String,
     name: Option<String>,
+    room_cooldown_secs: Option<i64>,
 ) -> Result<(), CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
@@ -1261,6 +1404,7 @@ pub fn update_room(
             room_id: room_id.clone(),
             org_id: org_id.clone(),
             name: name.clone(),
+            room_cooldown_secs,
         };
 
         let payload = ops::encode_cbor(&update_op)
@@ -1279,7 +1423,7 @@ pub fn update_room(
         }
 
         // Update in database
-        db::update_room(pool, &room_id, name.as_deref()).await?;
+        db::update_room(pool, &room_id, name.as_deref(), room_cooldown_secs).await?;
 
         Ok(())
     })
@@ -1296,6 +1440,253 @@ pub fn list_rooms(org_id: String, include_archived: bool) -> Vec<Room> {
             .unwrap_or_default()
             .into_iter()
             .map(room_from_row)
+            .collect()
+    })
+}
+
+// ── Events ───────────────────────────────────────────────────────────────────
+
+pub fn create_event(
+    org_id: String,
+    title: String,
+    description: Option<String>,
+    location_type: String,
+    location_text: Option<String>,
+    location_room_id: Option<String>,
+    start_at: i64,
+    end_at: Option<i64>,
+) -> Result<String, CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+        let now = now_micros();
+
+        let op_hash = {
+            let mut op_store = core.op_store.lock().await;
+            ops::publish(
+                &mut op_store,
+                &core.private_key,
+                ops::log_ids::EVENT,
+                &ops::EventOp {
+                    op_type: "create_event".into(),
+                    org_id: org_id.clone(),
+                    title: title.clone(),
+                    description: description.clone(),
+                    location_type: location_type.clone(),
+                    location_text: location_text.clone(),
+                    location_room_id: location_room_id.clone(),
+                    start_at,
+                    end_at,
+                },
+            )
+            .await?.0
+        };
+
+        let event_id = op_hash.to_hex();
+
+        db::insert_event(
+            pool,
+            &EventRow {
+                event_id: event_id.clone(),
+                org_id,
+                title,
+                description,
+                location_type,
+                location_text,
+                location_room_id,
+                start_at,
+                end_at,
+                created_by: core.public_key_hex.clone(),
+                created_at: now,
+                is_deleted: false,
+            },
+        )
+        .await?;
+
+        Ok(event_id)
+    })
+}
+
+pub fn update_event(
+    org_id: String,
+    event_id: String,
+    title: Option<String>,
+    description: Option<String>,
+    location_type: Option<String>,
+    location_text: Option<String>,
+    location_room_id: Option<String>,
+    start_at: Option<i64>,
+    end_at: Option<i64>,
+) -> Result<(), CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+
+        let update_op = ops::EventUpdateOp {
+            op_type: "update_event".into(),
+            event_id: event_id.clone(),
+            org_id: org_id.clone(),
+            title: title.clone(),
+            description: description.clone(),
+            location_type: location_type.clone(),
+            location_text: location_text.clone(),
+            location_room_id: location_room_id.clone(),
+            start_at,
+            end_at,
+        };
+
+        let payload = ops::encode_cbor(&update_op)
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+
+        {
+            let mut store_guard = core.op_store.lock().await;
+            ops::sign_and_store_op(
+                &mut *store_guard,
+                &core.private_key,
+                ops::log_ids::EVENT,
+                payload,
+            )
+            .await
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+        }
+
+        db::update_event(
+            pool,
+            &event_id,
+            title.as_deref(),
+            description.as_deref(),
+            location_type.as_deref(),
+            location_text.as_deref(),
+            location_room_id.as_deref(),
+            start_at,
+            end_at,
+        )
+        .await?;
+
+        Ok(())
+    })
+}
+
+pub fn delete_event(org_id: String, event_id: String) -> Result<(), CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+
+        let delete_op = ops::EventDeleteOp {
+            op_type: "delete_event".into(),
+            event_id: event_id.clone(),
+            org_id,
+        };
+
+        let payload = ops::encode_cbor(&delete_op)
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+
+        {
+            let mut store_guard = core.op_store.lock().await;
+            ops::sign_and_store_op(
+                &mut *store_guard,
+                &core.private_key,
+                ops::log_ids::EVENT,
+                payload,
+            )
+            .await
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+        }
+
+        db::delete_event(pool, &event_id).await?;
+        Ok(())
+    })
+}
+
+pub fn list_events(org_id: String) -> Vec<Event> {
+    store::block_on(async move {
+        let core = match store::get_core() {
+            Some(c) => c,
+            None => return vec![],
+        };
+        db::list_events(&core.read_pool, &org_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(event_from_row)
+            .collect()
+    })
+}
+
+pub fn set_event_rsvp(event_id: String, status: String) -> Result<(), CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+        let now = now_micros();
+
+        let op = ops::EventRsvpOp {
+            op_type: "set_event_rsvp".into(),
+            event_id: event_id.clone(),
+            status: Some(status.clone()),
+        };
+
+        let payload = ops::encode_cbor(&op)
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+
+        {
+            let mut store_guard = core.op_store.lock().await;
+            ops::sign_and_store_op(
+                &mut *store_guard,
+                &core.private_key,
+                ops::log_ids::EVENT_RSVP,
+                payload,
+            )
+            .await
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+        }
+
+        db::upsert_event_rsvp(pool, &event_id, &core.public_key_hex, &status, now).await?;
+        Ok(())
+    })
+}
+
+pub fn clear_event_rsvp(event_id: String) -> Result<(), CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+
+        let op = ops::EventRsvpOp {
+            op_type: "clear_event_rsvp".into(),
+            event_id: event_id.clone(),
+            status: None,
+        };
+
+        let payload = ops::encode_cbor(&op)
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+
+        {
+            let mut store_guard = core.op_store.lock().await;
+            ops::sign_and_store_op(
+                &mut *store_guard,
+                &core.private_key,
+                ops::log_ids::EVENT_RSVP,
+                payload,
+            )
+            .await
+            .map_err(|e| CoreError::OpsError(e.to_string()))?;
+        }
+
+        db::delete_event_rsvp(pool, &event_id, &core.public_key_hex).await?;
+        Ok(())
+    })
+}
+
+pub fn list_event_rsvps(event_id: String) -> Vec<EventRsvp> {
+    store::block_on(async move {
+        let core = match store::get_core() {
+            Some(c) => c,
+            None => return vec![],
+        };
+        db::list_event_rsvps(&core.read_pool, &event_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(event_rsvp_from_row)
             .collect()
     })
 }
@@ -1318,6 +1709,50 @@ pub fn send_message(
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
         let pool = &core.read_pool;
+        let now = now_micros();
+
+        // Enforce org/channel/user cooldowns and ice for room messages
+        if let Some(rid) = room_id.clone() {
+            let room = db::get_room(pool, &rid).await?
+                .ok_or_else(|| CoreError::InvalidInput("room not found".into()))?;
+            let org_id = room.org_id.clone();
+
+            if let Some(iced_until) = db::get_ice_for_member(pool, &org_id, &core.public_key_hex).await? {
+                if now < iced_until {
+                    let remaining = ((iced_until - now) / 1_000_000).max(1);
+                    return Err(CoreError::InvalidInput(format!("iced:{}s", remaining)));
+                }
+            }
+
+            let user_cd = db::get_org_user_cooldown(pool, &org_id, &core.public_key_hex).await?;
+            let org = db::get_org(pool, &org_id).await?
+                .ok_or_else(|| CoreError::InvalidInput("organization not found".into()))?;
+            let effective_cd = if let Some(secs) = user_cd {
+                Some(secs)
+            } else if let Some(secs) = room.room_cooldown_secs {
+                Some(secs)
+            } else {
+                org.org_cooldown_secs
+            };
+
+            if let Some(secs) = effective_cd {
+                if secs > 0 {
+                    let last_ts = if user_cd.is_some() || org.org_cooldown_secs.is_some() && room.room_cooldown_secs.is_none() {
+                        db::last_message_in_org_by_author(pool, &org_id, &core.public_key_hex).await?
+                    } else {
+                        db::last_message_in_room_by_author(pool, &rid, &core.public_key_hex).await?
+                    };
+                    if let Some(ts) = last_ts {
+                        let elapsed = now - ts;
+                        let min_us = secs * 1_000_000;
+                        if elapsed < min_us {
+                            let remaining = ((min_us - elapsed) / 1_000_000).max(1);
+                            return Err(CoreError::InvalidInput(format!("cooldown:{}s", remaining)));
+                        }
+                    }
+                }
+            }
+        }
 
         let (op_hash, gossip_bytes) = {
             let mut op_store = core.op_store.lock().await;
@@ -1341,7 +1776,6 @@ pub fn send_message(
         };
 
         let message_id = op_hash.to_hex();
-        let now = now_micros();
 
         db::insert_message(
             pool,
@@ -1443,6 +1877,185 @@ pub fn list_messages(
         .into_iter()
         .map(message_from_row)
         .collect()
+    })
+}
+
+pub fn add_reaction(message_id: String, emoji: String) -> Result<SendResult, CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+
+        let (op_hash, gossip_bytes) = {
+            let mut op_store = core.op_store.lock().await;
+            ops::publish(
+                &mut op_store,
+                &core.private_key,
+                ops::log_ids::REACTION,
+                &ops::ReactionOp {
+                    op_type: "add_reaction".into(),
+                    message_id: message_id.clone(),
+                    emoji: emoji.clone(),
+                },
+            )
+            .await?
+        };
+
+        db::upsert_reaction(pool, &message_id, &emoji, &core.public_key_hex).await?;
+
+        // Gossip via Iroh (room topic or DM inbox)
+        if network::is_initialized().await {
+            let row = sqlx::query("SELECT room_id, dm_thread_id FROM messages WHERE message_id = ?")
+                .bind(&message_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| CoreError::DbError(e.to_string()))?;
+            if let Some(r) = row {
+                let room_id: Option<String> = r.get("room_id");
+                let dm_thread_id: Option<String> = r.get("dm_thread_id");
+                if let Some(room) = room_id {
+                    if let Ok((topic_id, bootstrap)) = room_gossip_context(&core, &room).await {
+                        if let Err(e) = network::gossip_publish(
+                            topic_id,
+                            network::GossipTopicKind::Room,
+                            bootstrap,
+                            gossip_bytes.clone(),
+                        )
+                        .await
+                        {
+                            log::warn!("[gossip] failed to publish reaction: {}", e);
+                        }
+                    }
+                } else if let Some(thread_id) = dm_thread_id {
+                    if let Ok((topic_id, bootstrap, recipient_hex)) =
+                        dm_gossip_context(&core, &thread_id).await
+                    {
+                        let sender_pk = core.private_key.public_key();
+                        let recipient_bytes = match hex_to_bytes_32(&recipient_hex) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                log::warn!("[gossip] invalid recipient key: {}", e);
+                                return Ok(SendResult { id: op_hash.to_hex(), op_bytes: gossip_bytes });
+                            }
+                        };
+                        let sealed = match sealed_sender::seal(
+                            &gossip_bytes,
+                            sender_pk.as_bytes(),
+                            &recipient_bytes,
+                        ) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                log::warn!("[gossip] failed to seal dm reaction: {}", e);
+                                return Ok(SendResult { id: op_hash.to_hex(), op_bytes: gossip_bytes });
+                            }
+                        };
+                        let _ = network::gossip_publish(
+                            topic_id,
+                            network::GossipTopicKind::DmInbox,
+                            bootstrap,
+                            sealed,
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
+
+        Ok(SendResult { id: op_hash.to_hex(), op_bytes: gossip_bytes })
+    })
+}
+
+pub fn remove_reaction(message_id: String, emoji: String) -> Result<SendResult, CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+
+        let (op_hash, gossip_bytes) = {
+            let mut op_store = core.op_store.lock().await;
+            ops::publish(
+                &mut op_store,
+                &core.private_key,
+                ops::log_ids::REACTION,
+                &ops::ReactionOp {
+                    op_type: "remove_reaction".into(),
+                    message_id: message_id.clone(),
+                    emoji: emoji.clone(),
+                },
+            )
+            .await?
+        };
+
+        db::delete_reaction(pool, &message_id, &emoji, &core.public_key_hex).await?;
+
+        // Gossip via Iroh (room topic or DM inbox)
+        if network::is_initialized().await {
+            let row = sqlx::query("SELECT room_id, dm_thread_id FROM messages WHERE message_id = ?")
+                .bind(&message_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| CoreError::DbError(e.to_string()))?;
+            if let Some(r) = row {
+                let room_id: Option<String> = r.get("room_id");
+                let dm_thread_id: Option<String> = r.get("dm_thread_id");
+                if let Some(room) = room_id {
+                    if let Ok((topic_id, bootstrap)) = room_gossip_context(&core, &room).await {
+                        let _ = network::gossip_publish(
+                            topic_id,
+                            network::GossipTopicKind::Room,
+                            bootstrap,
+                            gossip_bytes.clone(),
+                        )
+                        .await;
+                    }
+                } else if let Some(thread_id) = dm_thread_id {
+                    if let Ok((topic_id, bootstrap, recipient_hex)) =
+                        dm_gossip_context(&core, &thread_id).await
+                    {
+                        let sender_pk = core.private_key.public_key();
+                        let recipient_bytes = match hex_to_bytes_32(&recipient_hex) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                log::warn!("[gossip] invalid recipient key: {}", e);
+                                return Ok(SendResult { id: op_hash.to_hex(), op_bytes: gossip_bytes });
+                            }
+                        };
+                        let sealed = match sealed_sender::seal(
+                            &gossip_bytes,
+                            sender_pk.as_bytes(),
+                            &recipient_bytes,
+                        ) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                log::warn!("[gossip] failed to seal dm reaction: {}", e);
+                                return Ok(SendResult { id: op_hash.to_hex(), op_bytes: gossip_bytes });
+                            }
+                        };
+                        let _ = network::gossip_publish(
+                            topic_id,
+                            network::GossipTopicKind::DmInbox,
+                            bootstrap,
+                            sealed,
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
+
+        Ok(SendResult { id: op_hash.to_hex(), op_bytes: gossip_bytes })
+    })
+}
+
+pub fn list_reactions(message_ids: Vec<String>) -> Vec<Reaction> {
+    store::block_on(async move {
+        let Some(core) = store::get_core() else {
+            return vec![];
+        };
+        if message_ids.is_empty() {
+            return vec![];
+        }
+        db::list_reactions(&core.read_pool, &message_ids)
+            .await
+            .unwrap_or_default()
     })
 }
 
@@ -1674,7 +2287,7 @@ pub fn list_dm_threads() -> Vec<DmThread> {
 }
 
 async fn room_gossip_context(
-    core: &store::DeltaCore,
+    core: &store::GardensCore,
     room_id: &str,
 ) -> Result<([u8; 32], Vec<iroh::EndpointId>), CoreError> {
     let room = db::get_room(&core.read_pool, room_id)
@@ -1699,7 +2312,7 @@ async fn room_gossip_context(
 }
 
 async fn dm_gossip_context(
-    core: &store::DeltaCore,
+    core: &store::GardensCore,
     dm_thread_id: &str,
 ) -> Result<([u8; 32], Vec<iroh::EndpointId>, String), CoreError> {
     let dm = db::get_dm_thread(&core.read_pool, dm_thread_id)
@@ -1724,7 +2337,7 @@ async fn dm_gossip_context(
     Ok((topic_id, peers, recipient_hex))
 }
 
-async fn join_existing_gossip_topics(core: &store::DeltaCore) -> Result<(), CoreError> {
+async fn join_existing_gossip_topics(core: &store::GardensCore) -> Result<(), CoreError> {
     // Always join our own DM inbox topic.
     if let Ok(topic_id) = topic_id_from_hex(&core.public_key_hex) {
         let mut peers = vec![];
@@ -1933,6 +2546,8 @@ pub fn add_member_direct(
             org_id: org_id.clone(),
             member_key: member_public_key.clone(),
             access_level: Some(level.as_str().to_string()),
+            cooldown_secs: None,
+            iced_until: None,
         };
 
         let payload = ops::encode_cbor(&membership_op)
@@ -1991,6 +2606,8 @@ pub fn remove_member_from_org(
             org_id: org_id.clone(),
             member_key: member_public_key,
             access_level: None,
+            cooldown_secs: None,
+            iced_until: None,
         };
 
         let payload = ops::encode_cbor(&membership_op)
@@ -2061,6 +2678,8 @@ pub fn change_member_permission(
             org_id: org_id.clone(),
             member_key: member_public_key,
             access_level: Some(new_level.as_str().to_string()),
+            cooldown_secs: None,
+            iced_until: None,
         };
 
         let payload = ops::encode_cbor(&membership_op)
@@ -2079,6 +2698,167 @@ pub fn change_member_permission(
         // op delivered via onion routing from the app layer
 
         Ok(())
+    })
+}
+
+/// Set org-wide cooldown (slow mode) in seconds. Requires Manage-level permission.
+pub fn set_org_cooldown(org_id: String, cooldown_secs: i64) -> Result<(), CoreError> {
+    update_org(
+        org_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(cooldown_secs),
+        None,
+    )
+}
+
+/// Set channel cooldown (slow mode) in seconds. Requires Manage-level permission.
+pub fn set_room_cooldown(
+    org_id: String,
+    room_id: String,
+    cooldown_secs: i64,
+) -> Result<(), CoreError> {
+    update_room(org_id, room_id, None, Some(cooldown_secs))
+}
+
+/// Set per-user cooldown (override) in seconds. Requires Manage-level permission.
+pub fn set_user_cooldown(
+    org_id: String,
+    member_public_key: String,
+    cooldown_secs: i64,
+) -> Result<(), AuthError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(AuthError::NotInitialised)?;
+        let state = get_org_membership_state(&org_id).await?;
+        if !state.has_permission(&core.private_key.public_key(), auth::AccessLevel::Manage) {
+            return Err(AuthError::Unauthorized("only Manage-level members can set cooldowns".into()));
+        }
+
+        db::set_org_user_cooldown(&core.read_pool, &org_id, &member_public_key, cooldown_secs)
+            .await
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        let membership_op = ops::MembershipOp {
+            op_type: "set_user_cooldown".into(),
+            org_id: org_id.clone(),
+            member_key: member_public_key,
+            access_level: None,
+            cooldown_secs: Some(cooldown_secs),
+            iced_until: None,
+        };
+        let payload = ops::encode_cbor(&membership_op)
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+        let mut store_guard = core.op_store.lock().await;
+        ops::sign_and_store_op(
+            &mut *store_guard,
+            &core.private_key,
+            ops::log_ids::MEMBERSHIP,
+            payload,
+        )
+        .await
+        .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        Ok(())
+    })
+}
+
+/// Ice a member for duration_secs. Requires Manage-level permission.
+pub fn ice_member(
+    org_id: String,
+    member_public_key: String,
+    duration_secs: i64,
+) -> Result<(), AuthError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(AuthError::NotInitialised)?;
+        let state = get_org_membership_state(&org_id).await?;
+        if !state.has_permission(&core.private_key.public_key(), auth::AccessLevel::Manage) {
+            return Err(AuthError::Unauthorized("only Manage-level members can ice members".into()));
+        }
+
+        let now = now_micros();
+        let iced_until = now + duration_secs * 1_000_000;
+        db::set_ice(&core.read_pool, &org_id, &member_public_key, iced_until)
+            .await
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        let membership_op = ops::MembershipOp {
+            op_type: "ice_member".into(),
+            org_id: org_id.clone(),
+            member_key: member_public_key,
+            access_level: None,
+            cooldown_secs: None,
+            iced_until: Some(iced_until),
+        };
+        let payload = ops::encode_cbor(&membership_op)
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+        let mut store_guard = core.op_store.lock().await;
+        ops::sign_and_store_op(
+            &mut *store_guard,
+            &core.private_key,
+            ops::log_ids::MEMBERSHIP,
+            payload,
+        )
+        .await
+        .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        Ok(())
+    })
+}
+
+/// Remove ice from a member. Requires Manage-level permission.
+pub fn unice_member(org_id: String, member_public_key: String) -> Result<(), AuthError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(AuthError::NotInitialised)?;
+        let state = get_org_membership_state(&org_id).await?;
+        if !state.has_permission(&core.private_key.public_key(), auth::AccessLevel::Manage) {
+            return Err(AuthError::Unauthorized("only Manage-level members can unice".into()));
+        }
+
+        db::clear_ice(&core.read_pool, &org_id, &member_public_key)
+            .await
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        let membership_op = ops::MembershipOp {
+            op_type: "unice_member".into(),
+            org_id: org_id.clone(),
+            member_key: member_public_key,
+            access_level: None,
+            cooldown_secs: None,
+            iced_until: None,
+        };
+        let payload = ops::encode_cbor(&membership_op)
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+        let mut store_guard = core.op_store.lock().await;
+        ops::sign_and_store_op(
+            &mut *store_guard,
+            &core.private_key,
+            ops::log_ids::MEMBERSHIP,
+            payload,
+        )
+        .await
+        .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        Ok(())
+    })
+}
+
+/// List iced members for an org.
+pub fn list_iced_members(org_id: String) -> Vec<IceInfo> {
+    store::block_on(async move {
+        let Some(core) = store::get_core() else {
+            return vec![];
+        };
+        db::list_ice(&core.read_pool, &org_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(public_key, iced_until)| IceInfo { public_key, iced_until })
+            .collect()
     })
 }
 
