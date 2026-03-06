@@ -1,4 +1,4 @@
-name = "delta-relay"
+name = "gardens-relay"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
@@ -8,11 +8,15 @@ crons = ["0 * * * *"]   # publish pkarr record every hour
 
 # Secrets (set via `wrangler secret put`):
 #   RELAY_SEED_HEX   — 64 hex chars, Ed25519 seed for this relay's keypair
-#   SELF_URL         Base URL of this Worker without trailing slash (e.g. https://relay.delta.app)
+#   SELF_URL         Base URL of this Worker without trailing slash (e.g. https://relay.gardens.app)
+
+[[kv_namespaces]]
+binding = "PUBLIC_BLOBS"
+id = "60ab4a818c3e4f75a3902fe7a50eabf7"
 
 [[services]]
 binding = "SYNC"
-service = "delta-sync"
+service = "gardens-sync"
 
 [observability]
 [observability.logs]

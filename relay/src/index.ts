@@ -1,5 +1,5 @@
 /**
- * Delta Relay — Cloudflare Worker.
+ * Gardens Relay — Cloudflare Worker.
  *
  * Endpoints:
  *   POST /hop   — receive an onion packet, peel one layer, route it
@@ -7,7 +7,7 @@
  *
  * Secrets (set via `wrangler secret put`):
  *   RELAY_SEED_HEX   64 hex char Ed25519 seed
- *   SELF_URL         Base URL of this Worker without trailing slash (e.g. https://relay.delta.app)
+ *   SELF_URL         Base URL of this Worker without trailing slash (e.g. https://relay.gardens.app)
  */
 
 import { ed25519 } from '@noble/curves/ed25519';
@@ -18,7 +18,8 @@ import { publishRelaySelf } from './pkarr';
 export interface Env {
   RELAY_SEED_HEX: string;
   SELF_URL?: string;
-  SYNC: Fetcher;   // service binding to delta-sync Worker
+  SYNC: Fetcher;   // service binding to gardens-sync Worker
+  PUBLIC_BLOBS: KVNamespace;
 }
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
@@ -87,7 +88,7 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    const selfUrl = env.SELF_URL ?? 'https://delta-relay.workers.dev';
+    const selfUrl = env.SELF_URL ?? 'https://gardens-relay.workers.dev';
     await publishRelaySelf(env.RELAY_SEED_HEX, selfUrl);
   },
 } satisfies ExportedHandler<Env>;
