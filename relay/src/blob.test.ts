@@ -52,13 +52,23 @@ describe('blob hash verification', () => {
 });
 
 describe('blob size validation', () => {
+  function isBlobTooLarge(byteLength: number): boolean {
+    return byteLength > MAX_BLOB_BYTES;
+  }
+
   it('accepts blobs at exactly 2MB', () => {
-    expect(MAX_BLOB_BYTES).toBe(2 * 1024 * 1024);
-    expect(MAX_BLOB_BYTES <= MAX_BLOB_BYTES).toBe(true);
+    expect(isBlobTooLarge(MAX_BLOB_BYTES)).toBe(false);
   });
 
-  it('rejects blobs over 2MB', () => {
-    const overSize = MAX_BLOB_BYTES + 1;
-    expect(overSize > MAX_BLOB_BYTES).toBe(true);
+  it('rejects blobs at 2MB + 1 byte', () => {
+    expect(isBlobTooLarge(MAX_BLOB_BYTES + 1)).toBe(true);
+  });
+
+  it('accepts a 1KB blob', () => {
+    expect(isBlobTooLarge(1024)).toBe(false);
+  });
+
+  it('rejects a 3MB blob', () => {
+    expect(isBlobTooLarge(3 * 1024 * 1024)).toBe(true);
   });
 });
