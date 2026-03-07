@@ -432,7 +432,7 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
 
     // Get all public profiles (published with user's key)
     let rows = sqlx::query(
-        "SELECT public_key, username, bio, avatar_blob_id FROM profiles WHERE is_public = 1"
+        "SELECT public_key, username, bio, avatar_blob_id, email_enabled FROM profiles WHERE is_public = 1"
     )
     .fetch_all(read_pool)
     .await
@@ -443,21 +443,22 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
         let username: String = row.get("username");
         let bio: Option<String> = row.get("bio");
         let avatar: Option<String> = row.get("avatar_blob_id");
+        let email_enabled = row.get::<i64, _>("email_enabled") != 0;
 
-        if let Err(e) = publish_profile(&private_key_hex, &username, bio.as_deref(), avatar.as_deref(), relay_z32.as_deref(), false).await {
+        if let Err(e) = publish_profile(&private_key_hex, &username, bio.as_deref(), avatar.as_deref(), relay_z32.as_deref(), email_enabled).await {
             log::error!("[pkarr] failed to republish profile {}: {}", public_key, e);
         }
     }
     
     // Get all public orgs with their encrypted keys
     let org_rows = sqlx::query(
-        "SELECT org_id, name, description, avatar_blob_id, cover_blob_id, org_pubkey, org_privkey_enc \
+        "SELECT org_id, name, description, avatar_blob_id, cover_blob_id, org_pubkey, org_privkey_enc, email_enabled \
          FROM organizations WHERE is_public = 1"
     )
     .fetch_all(read_pool)
     .await
     .map_err(|e| format!("db error: {}", e))?;
-    
+
     for row in org_rows {
         let org_id: String = row.get("org_id");
         let name: String = row.get("name");
@@ -466,13 +467,14 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
         let cover: Option<String> = row.get("cover_blob_id");
         let org_pubkey: Option<String> = row.get("org_pubkey");
         let org_privkey_enc: Option<Vec<u8>> = row.get("org_privkey_enc");
-        
+        let email_enabled = row.get::<i64, _>("email_enabled") != 0;
+
         // Try to decrypt and use the org's key for publishing
         if let (Some(_pubkey), Some(encrypted_key)) = (org_pubkey, org_privkey_enc) {
             // Decrypt the org's private key
             if let Some(org_seed) = decrypt_org_privkey(&encrypted_key, &user_signing_key) {
                 let org_pk_hex = hex::encode(org_seed);
-                
+
                 if let Err(e) = publish_org_with_key(
                     &org_pk_hex,
                     &org_id,
@@ -481,7 +483,7 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
                     avatar.as_deref(),
                     cover.as_deref(),
                     relay_z32.as_deref(),
-                    false,
+                    email_enabled,
                 ).await {
                     log::error!("[pkarr] failed to republish org {}: {}", org_id, e);
                 }

@@ -526,6 +526,7 @@ pub fn create_or_update_profile(
     available_for: Vec<String>,
     is_public: bool,
     avatar_blob_id: Option<String>,
+    email_enabled: bool,
 ) -> Result<(), CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
@@ -574,6 +575,7 @@ pub fn create_or_update_profile(
                 is_public: Some(if is_public { 1 } else { 0 }),
                 created_at,
                 updated_at: now,
+                email_enabled: if email_enabled { 1 } else { 0 },
             },
         )
         .await
@@ -592,7 +594,7 @@ pub fn create_or_update_profile(
                 bio.as_deref(),
                 avatar_for_publish.as_deref(),
                 relay_z32_for_publish.as_deref(),
-                false,
+                email_enabled,
             ).await {
                 log::error!("[pkarr] Failed to publish profile: {}", e);
             } else {
@@ -706,6 +708,7 @@ pub fn create_org(
                 org_pubkey: Some(org_pubkey_z32),
                 org_privkey_enc: Some(org_privkey_enc),
                 created_at: now,
+                email_enabled: 0,
             },
         )
         .await?;
@@ -1028,6 +1031,7 @@ pub fn update_org(
     custom_emoji_json: Option<String>,
     org_cooldown_secs: Option<i64>,
     is_public: Option<bool>,
+    email_enabled: Option<bool>,
 ) -> Result<Vec<u8>, CoreError> {
     store::block_on(async move {
         log::info!(
@@ -1113,6 +1117,7 @@ pub fn update_org(
             custom_emoji_json.as_deref(),
             org_cooldown_secs,
             is_public,
+            email_enabled,
         ).await?;
         
         // Backfill org_pubkey if it was clobbered by older projector inserts.
@@ -1140,7 +1145,7 @@ pub fn update_org(
                     avatar_blob_id.as_deref(),
                     cover_blob_id.as_deref(),
                     relay_z32_for_publish.as_deref(),
-                    false,
+                    email_enabled.unwrap_or(false),
                 ).await {
                     log::error!("[pkarr] failed to publish org update: {}", e);
                 }
@@ -2727,6 +2732,7 @@ pub fn set_org_cooldown(org_id: String, cooldown_secs: i64) -> Result<(), CoreEr
         None,
         None,
         Some(cooldown_secs),
+        None,
         None,
     ).map(|_| ())
 }

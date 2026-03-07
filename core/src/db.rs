@@ -22,6 +22,12 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
     // Additive column migrations — safe to run repeatedly (errors are ignored).
     let additive_migrations = [
         "ALTER TABLE organizations ADD COLUMN cover_blob_id TEXT",
+        "ALTER TABLE organizations ADD COLUMN welcome_text TEXT",
+        "ALTER TABLE organizations ADD COLUMN custom_emoji_json TEXT",
+        "ALTER TABLE organizations ADD COLUMN org_cooldown_secs INTEGER",
+        "ALTER TABLE rooms ADD COLUMN room_cooldown_secs INTEGER",
+        "ALTER TABLE profiles ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE organizations ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
     ];
     for sql in &additive_migrations {
         let _ = sqlx::query(sql).execute(pool).await;
@@ -56,6 +62,9 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
             description     TEXT,
             avatar_blob_id  TEXT,
             cover_blob_id   TEXT,
+            welcome_text    TEXT,
+            custom_emoji_json TEXT,
+            org_cooldown_secs INTEGER,
             is_public       INTEGER NOT NULL DEFAULT 0,
             creator_key     TEXT NOT NULL,
             org_pubkey      TEXT,              -- Org's public key (z32 encoded)
@@ -81,7 +90,45 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
             created_at      INTEGER NOT NULL,
             enc_key_epoch   INTEGER NOT NULL DEFAULT 0,
             is_archived     INTEGER NOT NULL DEFAULT 0,
-            archived_at     INTEGER
+            archived_at     INTEGER,
+            room_cooldown_secs INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS events (
+            event_id        TEXT PRIMARY KEY,
+            org_id          TEXT NOT NULL,
+            title           TEXT NOT NULL,
+            description     TEXT,
+            location_type   TEXT NOT NULL,
+            location_text   TEXT,
+            location_room_id TEXT,
+            start_at        INTEGER NOT NULL,
+            end_at          INTEGER,
+            created_by      TEXT NOT NULL,
+            created_at      INTEGER NOT NULL,
+            is_deleted      INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS event_rsvps (
+            event_id        TEXT NOT NULL,
+            member_key      TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            PRIMARY KEY (event_id, member_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS org_user_cooldowns (
+            org_id          TEXT NOT NULL,
+            member_key      TEXT NOT NULL,
+            cooldown_secs   INTEGER NOT NULL,
+            PRIMARY KEY (org_id, member_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS org_ice (
+            org_id          TEXT NOT NULL,
+            member_key      TEXT NOT NULL,
+            iced_until      INTEGER NOT NULL,
+            PRIMARY KEY (org_id, member_key)
         );
 
         CREATE TABLE IF NOT EXISTS messages (
@@ -289,6 +336,7 @@ pub struct ProfileRow {
     pub created_at: i64,
     pub updated_at: i64,
     pub is_public: Option<i64>,
+    pub email_enabled: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -299,11 +347,15 @@ pub struct OrgRow {
     pub description: Option<String>,
     pub avatar_blob_id: Option<String>,
     pub cover_blob_id: Option<String>,
+    pub welcome_text: Option<String>,
+    pub custom_emoji_json: Option<String>,
+    pub org_cooldown_secs: Option<i64>,
     pub is_public: i64,
     pub creator_key: String,
     pub org_pubkey: Option<String>,      // Z32-encoded public key
     pub org_privkey_enc: Option<Vec<u8>>, // Encrypted private key
     pub created_at: i64,
+    pub email_enabled: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -316,6 +368,29 @@ pub struct RoomRow {
     pub enc_key_epoch: u64,
     pub is_archived: bool,
     pub archived_at: Option<i64>,
+    pub room_cooldown_secs: Option<i64>,
+}
+
+pub struct EventRow {
+    pub event_id: String,
+    pub org_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub location_type: String,
+    pub location_text: Option<String>,
+    pub location_room_id: Option<String>,
+    pub start_at: i64,
+    pub end_at: Option<i64>,
+    pub created_by: String,
+    pub created_at: i64,
+    pub is_deleted: bool,
+}
+
+pub struct EventRsvpRow {
+    pub event_id: String,
+    pub member_key: String,
+    pub status: String,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -358,15 +433,16 @@ pub struct BlobMeta {
 
 pub async fn upsert_profile(pool: &SqlitePool, row: &ProfileRow) -> Result<(), DbError> {
     sqlx::query(
-        r#"INSERT INTO profiles (public_key, username, avatar_blob_id, bio, available_for, is_public, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO profiles (public_key, username, avatar_blob_id, bio, available_for, is_public, created_at, updated_at, email_enabled)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(public_key) DO UPDATE SET
                username = excluded.username,
                avatar_blob_id = excluded.avatar_blob_id,
                bio = excluded.bio,
                available_for = excluded.available_for,
                is_public = excluded.is_public,
-               updated_at = excluded.updated_at"#,
+               updated_at = excluded.updated_at,
+               email_enabled = excluded.email_enabled"#,
     )
     .bind(&row.public_key)
     .bind(&row.username)
@@ -376,6 +452,7 @@ pub async fn upsert_profile(pool: &SqlitePool, row: &ProfileRow) -> Result<(), D
     .bind(row.is_public)
     .bind(row.created_at)
     .bind(row.updated_at)
+    .bind(row.email_enabled)
     .execute(pool)
     .await?;
     Ok(())
@@ -396,18 +473,12 @@ pub async fn get_profile(pool: &SqlitePool, public_key: &str) -> Result<Option<P
 
 pub async fn insert_org(pool: &SqlitePool, row: &OrgRow) -> Result<(), DbError> {
     sqlx::query(
-        r#"INSERT INTO organizations (org_id, name, type_label, description, avatar_blob_id, cover_blob_id, is_public, creator_key, org_pubkey, org_privkey_enc, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO organizations (org_id, name, type_label, description, avatar_blob_id, cover_blob_id, welcome_text, custom_emoji_json, org_cooldown_secs, is_public, creator_key, org_pubkey, org_privkey_enc, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(org_id) DO UPDATE SET
-               name = excluded.name,
-               type_label = excluded.type_label,
-               description = excluded.description,
-               avatar_blob_id = excluded.avatar_blob_id,
-               cover_blob_id = excluded.cover_blob_id,
-               is_public = excluded.is_public,
-               -- Preserve org keys: only update if new value is not NULL
-               org_pubkey = COALESCE(excluded.org_pubkey, organizations.org_pubkey),
-               org_privkey_enc = COALESCE(excluded.org_privkey_enc, organizations.org_privkey_enc)"#,
+               -- Preserve existing org fields; only fill in keys if they were missing.
+               org_pubkey = COALESCE(organizations.org_pubkey, excluded.org_pubkey),
+               org_privkey_enc = COALESCE(organizations.org_privkey_enc, excluded.org_privkey_enc)"#,
     )
     .bind(&row.org_id)
     .bind(&row.name)
@@ -415,6 +486,9 @@ pub async fn insert_org(pool: &SqlitePool, row: &OrgRow) -> Result<(), DbError> 
     .bind(&row.description)
     .bind(&row.avatar_blob_id)
     .bind(&row.cover_blob_id)
+    .bind(&row.welcome_text)
+    .bind(&row.custom_emoji_json)
+    .bind(&row.org_cooldown_secs)
     .bind(row.is_public as i64)
     .bind(&row.creator_key)
     .bind(&row.org_pubkey)
@@ -433,10 +507,14 @@ pub async fn update_org(
     description: Option<&str>,
     avatar_blob_id: Option<&str>,
     cover_blob_id: Option<&str>,
+    welcome_text: Option<&str>,
+    custom_emoji_json: Option<&str>,
+    org_cooldown_secs: Option<i64>,
     is_public: Option<bool>,
+    email_enabled: Option<bool>,
 ) -> Result<(), DbError> {
     let mut query_parts = vec![];
-    
+
     if name.is_some() {
         query_parts.push("name = ?");
     }
@@ -452,18 +530,30 @@ pub async fn update_org(
     if cover_blob_id.is_some() {
         query_parts.push("cover_blob_id = ?");
     }
+    if welcome_text.is_some() {
+        query_parts.push("welcome_text = ?");
+    }
+    if custom_emoji_json.is_some() {
+        query_parts.push("custom_emoji_json = ?");
+    }
+    if org_cooldown_secs.is_some() {
+        query_parts.push("org_cooldown_secs = ?");
+    }
     if is_public.is_some() {
         query_parts.push("is_public = ?");
     }
-    
+    if email_enabled.is_some() {
+        query_parts.push("email_enabled = ?");
+    }
+
     if query_parts.is_empty() {
         return Ok(());
     }
-    
+
     let query = format!("UPDATE organizations SET {} WHERE org_id = ?", query_parts.join(", "));
-    
+
     let mut q = sqlx::query(&query);
-    
+
     if let Some(name) = name {
         q = q.bind(name);
     }
@@ -479,11 +569,36 @@ pub async fn update_org(
     if let Some(cover_blob_id) = cover_blob_id {
         q = q.bind(cover_blob_id);
     }
+    if let Some(welcome_text) = welcome_text {
+        q = q.bind(welcome_text);
+    }
+    if let Some(custom_emoji_json) = custom_emoji_json {
+        q = q.bind(custom_emoji_json);
+    }
+    if let Some(org_cooldown_secs) = org_cooldown_secs {
+        q = q.bind(org_cooldown_secs);
+    }
     if let Some(is_public) = is_public {
         q = q.bind(is_public as i64);
     }
-    
+    if let Some(email_enabled) = email_enabled {
+        q = q.bind(email_enabled as i64);
+    }
+
     q.bind(org_id).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn set_org_pubkey(
+    pool: &SqlitePool,
+    org_id: &str,
+    org_pubkey: &str,
+) -> Result<(), DbError> {
+    sqlx::query("UPDATE organizations SET org_pubkey = ? WHERE org_id = ?")
+        .bind(org_pubkey)
+        .bind(org_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -491,27 +606,40 @@ pub async fn update_room(
     pool: &SqlitePool,
     room_id: &str,
     name: Option<&str>,
+    room_cooldown_secs: Option<i64>,
 ) -> Result<(), DbError> {
-    if let Some(name) = name {
-        sqlx::query("UPDATE rooms SET name = ? WHERE room_id = ?")
-            .bind(name)
-            .bind(room_id)
-            .execute(pool)
-            .await?;
+    let mut parts = vec![];
+    if name.is_some() {
+        parts.push("name = ?");
     }
+    if room_cooldown_secs.is_some() {
+        parts.push("room_cooldown_secs = ?");
+    }
+    if parts.is_empty() {
+        return Ok(());
+    }
+    let query = format!("UPDATE rooms SET {} WHERE room_id = ?", parts.join(", "));
+    let mut q = sqlx::query(&query);
+    if let Some(name) = name {
+        q = q.bind(name);
+    }
+    if let Some(room_cooldown_secs) = room_cooldown_secs {
+        q = q.bind(room_cooldown_secs);
+    }
+    q.bind(room_id).execute(pool).await?;
     Ok(())
 }
 
 pub async fn get_org(pool: &SqlitePool, org_id: &str) -> Result<Option<OrgRow>, DbError> {
     let row = sqlx::query(
-        "SELECT org_id, name, type_label, description, avatar_blob_id, cover_blob_id, \
-         is_public, creator_key, org_pubkey, org_privkey_enc, created_at \
+        "SELECT org_id, name, type_label, description, avatar_blob_id, cover_blob_id, welcome_text, custom_emoji_json, org_cooldown_secs, \
+         is_public, creator_key, org_pubkey, org_privkey_enc, created_at, email_enabled \
          FROM organizations WHERE org_id = ?"
     )
     .bind(org_id)
     .fetch_optional(pool)
     .await?;
-    
+
     Ok(row.map(|r| OrgRow {
         org_id: r.get("org_id"),
         name: r.get("name"),
@@ -519,18 +647,22 @@ pub async fn get_org(pool: &SqlitePool, org_id: &str) -> Result<Option<OrgRow>, 
         description: r.get("description"),
         avatar_blob_id: r.get("avatar_blob_id"),
         cover_blob_id: r.get("cover_blob_id"),
+        welcome_text: r.get("welcome_text"),
+        custom_emoji_json: r.get("custom_emoji_json"),
+        org_cooldown_secs: r.get("org_cooldown_secs"),
         is_public: r.get::<i64, _>("is_public"),
         creator_key: r.get("creator_key"),
         org_pubkey: r.get("org_pubkey"),
         org_privkey_enc: r.get("org_privkey_enc"),
         created_at: r.get("created_at"),
+        email_enabled: r.get::<i64, _>("email_enabled"),
     }))
 }
 
 pub async fn list_orgs_for_member(pool: &SqlitePool, member_key: &str) -> Result<Vec<OrgRow>, DbError> {
     let rows = sqlx::query(
         r#"SELECT o.org_id, o.name, o.type_label, o.description, o.avatar_blob_id, o.cover_blob_id,
-                  o.is_public, o.creator_key, o.org_pubkey, o.org_privkey_enc, o.created_at
+                  o.welcome_text, o.custom_emoji_json, o.org_cooldown_secs, o.is_public, o.creator_key, o.org_pubkey, o.org_privkey_enc, o.created_at, o.email_enabled
            FROM organizations o
            JOIN memberships m ON m.org_id = o.org_id
            WHERE m.member_key = ?
@@ -549,11 +681,15 @@ pub async fn list_orgs_for_member(pool: &SqlitePool, member_key: &str) -> Result
             description: r.get("description"),
             avatar_blob_id: r.get("avatar_blob_id"),
             cover_blob_id: r.get("cover_blob_id"),
+            welcome_text: r.get("welcome_text"),
+            custom_emoji_json: r.get("custom_emoji_json"),
+            org_cooldown_secs: r.get("org_cooldown_secs"),
             is_public: r.get::<i64, _>("is_public"),
             creator_key: r.get("creator_key"),
             org_pubkey: r.get("org_pubkey"),
             org_privkey_enc: r.get("org_privkey_enc"),
             created_at: r.get("created_at"),
+            email_enabled: r.get::<i64, _>("email_enabled"),
         })
         .collect())
 }
@@ -700,13 +836,14 @@ pub async fn is_muted(
 
 pub async fn insert_room(pool: &SqlitePool, row: &RoomRow) -> Result<(), DbError> {
     sqlx::query(
-        r#"INSERT INTO rooms (room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO rooms (room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at, room_cooldown_secs)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(room_id) DO UPDATE SET 
-               name = excluded.name, 
+               name = excluded.name,
                enc_key_epoch = excluded.enc_key_epoch,
                is_archived = excluded.is_archived,
-               archived_at = excluded.archived_at"#,
+               archived_at = excluded.archived_at,
+               room_cooldown_secs = excluded.room_cooldown_secs"#,
     )
     .bind(&row.room_id)
     .bind(&row.org_id)
@@ -716,6 +853,7 @@ pub async fn insert_room(pool: &SqlitePool, row: &RoomRow) -> Result<(), DbError
     .bind(row.enc_key_epoch as i64)
     .bind(row.is_archived as i64)
     .bind(row.archived_at)
+    .bind(row.room_cooldown_secs)
     .execute(pool)
     .await?;
     Ok(())
@@ -752,7 +890,7 @@ pub async fn unarchive_room(pool: &SqlitePool, room_id: &str) -> Result<(), DbEr
 
 pub async fn get_room(pool: &SqlitePool, room_id: &str) -> Result<Option<RoomRow>, DbError> {
     let row = sqlx::query(
-        "SELECT room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at FROM rooms WHERE room_id = ?"
+        "SELECT room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at, room_cooldown_secs FROM rooms WHERE room_id = ?"
     )
     .bind(room_id)
     .fetch_optional(pool)
@@ -767,14 +905,15 @@ pub async fn get_room(pool: &SqlitePool, room_id: &str) -> Result<Option<RoomRow
         enc_key_epoch: r.get::<i64, _>("enc_key_epoch") as u64,
         is_archived: r.get::<i64, _>("is_archived") != 0,
         archived_at: r.get("archived_at"),
+        room_cooldown_secs: r.get("room_cooldown_secs"),
     }))
 }
 
 pub async fn list_rooms(pool: &SqlitePool, org_id: &str, include_archived: bool) -> Result<Vec<RoomRow>, DbError> {
     let query = if include_archived {
-        "SELECT room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at FROM rooms WHERE org_id = ? ORDER BY created_at ASC"
+        "SELECT room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at, room_cooldown_secs FROM rooms WHERE org_id = ? ORDER BY created_at ASC"
     } else {
-        "SELECT room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at FROM rooms WHERE org_id = ? AND is_archived = 0 ORDER BY created_at ASC"
+        "SELECT room_id, org_id, name, created_by, created_at, enc_key_epoch, is_archived, archived_at, room_cooldown_secs FROM rooms WHERE org_id = ? AND is_archived = 0 ORDER BY created_at ASC"
     };
 
     let rows = sqlx::query(query)
@@ -793,8 +932,160 @@ pub async fn list_rooms(pool: &SqlitePool, org_id: &str, include_archived: bool)
             enc_key_epoch: r.get::<i64, _>("enc_key_epoch") as u64,
             is_archived: r.get::<i64, _>("is_archived") != 0,
             archived_at: r.get("archived_at"),
+            room_cooldown_secs: r.get("room_cooldown_secs"),
         })
         .collect())
+}
+
+// ─── Events ──────────────────────────────────────────────────────────────────
+
+pub async fn insert_event(pool: &SqlitePool, row: &EventRow) -> Result<(), DbError> {
+    sqlx::query(
+        r#"INSERT INTO events (event_id, org_id, title, description, location_type, location_text, location_room_id, start_at, end_at, created_by, created_at, is_deleted)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(event_id) DO UPDATE SET
+               title = excluded.title,
+               description = excluded.description,
+               location_type = excluded.location_type,
+               location_text = excluded.location_text,
+               location_room_id = excluded.location_room_id,
+               start_at = excluded.start_at,
+               end_at = excluded.end_at,
+               is_deleted = excluded.is_deleted"#,
+    )
+    .bind(&row.event_id)
+    .bind(&row.org_id)
+    .bind(&row.title)
+    .bind(&row.description)
+    .bind(&row.location_type)
+    .bind(&row.location_text)
+    .bind(&row.location_room_id)
+    .bind(row.start_at)
+    .bind(row.end_at)
+    .bind(&row.created_by)
+    .bind(row.created_at)
+    .bind(row.is_deleted as i64)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_event(
+    pool: &SqlitePool,
+    event_id: &str,
+    title: Option<&str>,
+    description: Option<&str>,
+    location_type: Option<&str>,
+    location_text: Option<&str>,
+    location_room_id: Option<&str>,
+    start_at: Option<i64>,
+    end_at: Option<i64>,
+) -> Result<(), DbError> {
+    let mut parts = vec![];
+    if title.is_some() { parts.push("title = ?"); }
+    if description.is_some() { parts.push("description = ?"); }
+    if location_type.is_some() { parts.push("location_type = ?"); }
+    if location_text.is_some() { parts.push("location_text = ?"); }
+    if location_room_id.is_some() { parts.push("location_room_id = ?"); }
+    if start_at.is_some() { parts.push("start_at = ?"); }
+    if end_at.is_some() { parts.push("end_at = ?"); }
+    if parts.is_empty() { return Ok(()); }
+
+    let query = format!("UPDATE events SET {} WHERE event_id = ?", parts.join(", "));
+    let mut q = sqlx::query(&query);
+    if let Some(v) = title { q = q.bind(v); }
+    if let Some(v) = description { q = q.bind(v); }
+    if let Some(v) = location_type { q = q.bind(v); }
+    if let Some(v) = location_text { q = q.bind(v); }
+    if let Some(v) = location_room_id { q = q.bind(v); }
+    if let Some(v) = start_at { q = q.bind(v); }
+    if let Some(v) = end_at { q = q.bind(v); }
+    q.bind(event_id).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn delete_event(pool: &SqlitePool, event_id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE events SET is_deleted = 1 WHERE event_id = ?")
+        .bind(event_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn list_events(pool: &SqlitePool, org_id: &str) -> Result<Vec<EventRow>, DbError> {
+    let rows = sqlx::query(
+        "SELECT event_id, org_id, title, description, location_type, location_text, location_room_id, start_at, end_at, created_by, created_at, is_deleted FROM events WHERE org_id = ? AND is_deleted = 0 ORDER BY start_at ASC"
+    )
+    .bind(org_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(|r| EventRow {
+        event_id: r.get("event_id"),
+        org_id: r.get("org_id"),
+        title: r.get("title"),
+        description: r.get("description"),
+        location_type: r.get("location_type"),
+        location_text: r.get("location_text"),
+        location_room_id: r.get("location_room_id"),
+        start_at: r.get("start_at"),
+        end_at: r.get("end_at"),
+        created_by: r.get("created_by"),
+        created_at: r.get("created_at"),
+        is_deleted: r.get::<i64, _>("is_deleted") != 0,
+    }).collect())
+}
+
+pub async fn upsert_event_rsvp(
+    pool: &SqlitePool,
+    event_id: &str,
+    member_key: &str,
+    status: &str,
+    updated_at: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        r#"INSERT INTO event_rsvps (event_id, member_key, status, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(event_id, member_key) DO UPDATE SET
+               status = excluded.status,
+               updated_at = excluded.updated_at"#,
+    )
+    .bind(event_id)
+    .bind(member_key)
+    .bind(status)
+    .bind(updated_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_event_rsvp(
+    pool: &SqlitePool,
+    event_id: &str,
+    member_key: &str,
+) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM event_rsvps WHERE event_id = ? AND member_key = ?")
+        .bind(event_id)
+        .bind(member_key)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn list_event_rsvps(pool: &SqlitePool, event_id: &str) -> Result<Vec<EventRsvpRow>, DbError> {
+    let rows = sqlx::query(
+        "SELECT event_id, member_key, status, updated_at FROM event_rsvps WHERE event_id = ?"
+    )
+    .bind(event_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(|r| EventRsvpRow {
+        event_id: r.get("event_id"),
+        member_key: r.get("member_key"),
+        status: r.get("status"),
+        updated_at: r.get("updated_at"),
+    }).collect())
 }
 
 // ─── Message ─────────────────────────────────────────────────────────────────
@@ -941,6 +1232,148 @@ pub async fn insert_dm_thread(pool: &SqlitePool, row: &DmThreadRow) -> Result<()
     .execute(pool)
     .await?;
     Ok(())
+}
+
+pub async fn list_reactions(
+    pool: &SqlitePool,
+    message_ids: &[String],
+) -> Result<Vec<crate::Reaction>, DbError> {
+    if message_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let placeholders = vec!["?"; message_ids.len()].join(", ");
+    let query = format!(
+        "SELECT message_id, emoji, reactor_key FROM reactions WHERE message_id IN ({})",
+        placeholders
+    );
+    let mut q = sqlx::query(&query);
+    for id in message_ids {
+        q = q.bind(id);
+    }
+    let rows = q.fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| crate::Reaction {
+            message_id: r.get("message_id"),
+            emoji: r.get("emoji"),
+            reactor_key: r.get("reactor_key"),
+        })
+        .collect())
+}
+
+// ─── Cooldowns & Ice ─────────────────────────────────────────────────────────
+
+pub async fn set_org_user_cooldown(
+    pool: &SqlitePool,
+    org_id: &str,
+    member_key: &str,
+    cooldown_secs: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO org_user_cooldowns (org_id, member_key, cooldown_secs) VALUES (?, ?, ?)
+         ON CONFLICT(org_id, member_key) DO UPDATE SET cooldown_secs = excluded.cooldown_secs",
+    )
+    .bind(org_id)
+    .bind(member_key)
+    .bind(cooldown_secs)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_org_user_cooldown(
+    pool: &SqlitePool,
+    org_id: &str,
+    member_key: &str,
+) -> Result<Option<i64>, DbError> {
+    let row = sqlx::query("SELECT cooldown_secs FROM org_user_cooldowns WHERE org_id = ? AND member_key = ?")
+        .bind(org_id)
+        .bind(member_key)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.get::<i64, _>("cooldown_secs")))
+}
+
+pub async fn set_ice(
+    pool: &SqlitePool,
+    org_id: &str,
+    member_key: &str,
+    iced_until: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO org_ice (org_id, member_key, iced_until) VALUES (?, ?, ?)
+         ON CONFLICT(org_id, member_key) DO UPDATE SET iced_until = excluded.iced_until",
+    )
+    .bind(org_id)
+    .bind(member_key)
+    .bind(iced_until)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn clear_ice(pool: &SqlitePool, org_id: &str, member_key: &str) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM org_ice WHERE org_id = ? AND member_key = ?")
+        .bind(org_id)
+        .bind(member_key)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn list_ice(pool: &SqlitePool, org_id: &str) -> Result<Vec<(String, i64)>, DbError> {
+    let rows = sqlx::query("SELECT member_key, iced_until FROM org_ice WHERE org_id = ?")
+        .bind(org_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.get("member_key"), r.get::<i64, _>("iced_until")))
+        .collect())
+}
+
+pub async fn get_ice_for_member(
+    pool: &SqlitePool,
+    org_id: &str,
+    member_key: &str,
+) -> Result<Option<i64>, DbError> {
+    let row = sqlx::query("SELECT iced_until FROM org_ice WHERE org_id = ? AND member_key = ?")
+        .bind(org_id)
+        .bind(member_key)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.get::<i64, _>("iced_until")))
+}
+
+pub async fn last_message_in_room_by_author(
+    pool: &SqlitePool,
+    room_id: &str,
+    author_key: &str,
+) -> Result<Option<i64>, DbError> {
+    let row = sqlx::query("SELECT timestamp FROM messages WHERE room_id = ? AND author_key = ? ORDER BY timestamp DESC LIMIT 1")
+        .bind(room_id)
+        .bind(author_key)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.get::<i64, _>("timestamp")))
+}
+
+pub async fn last_message_in_org_by_author(
+    pool: &SqlitePool,
+    org_id: &str,
+    author_key: &str,
+) -> Result<Option<i64>, DbError> {
+    let row = sqlx::query(
+        "SELECT m.timestamp FROM messages m
+         JOIN rooms r ON r.room_id = m.room_id
+         WHERE r.org_id = ? AND m.author_key = ?
+         ORDER BY m.timestamp DESC LIMIT 1"
+    )
+    .bind(org_id)
+    .bind(author_key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.get::<i64, _>("timestamp")))
 }
 
 pub async fn list_dm_threads(pool: &SqlitePool, my_key: &str) -> Result<Vec<DmThreadRow>, DbError> {

@@ -9,9 +9,12 @@ import {
   deleteRoom as dcDeleteRoom,
   archiveRoom as dcArchiveRoom,
   unarchiveRoom as dcUnarchiveRoom,
+  getBlob,
   type OrgSummary,
   type Room,
-} from '../ffi/deltaCore';
+} from '../ffi/gardensCore';
+import { uploadBlobToRelay, DEFAULT_RELAY_URL } from './useProfileStore';
+import { broadcastOp } from './useSyncStore';
 
 interface OrgsState {
   orgs: OrgSummary[];
@@ -26,16 +29,20 @@ interface OrgsState {
   ): Promise<string>;
   updateOrg(
     orgId: string,
-    name?: string,
-    typeLabel?: string,
-    description?: string,
-    avatarBlobId?: string,
-    coverBlobId?: string,
-    isPublic?: boolean,
+    name?: string | null,
+    typeLabel?: string | null,
+    description?: string | null,
+    avatarBlobId?: string | null,
+    coverBlobId?: string | null,
+    welcomeText?: string | null,
+    customEmojiJson?: string | null,
+    orgCooldownSecs?: number | null,
+    isPublic?: boolean | null,
+    emailEnabled?: boolean | null,
   ): Promise<void>;
   fetchRooms(orgId: string, includeArchived?: boolean): Promise<void>;
   createRoom(orgId: string, name: string): Promise<string>;
-  updateRoom(orgId: string, roomId: string, name?: string): Promise<void>;
+  updateRoom(orgId: string, roomId: string, name?: string, roomCooldownSecs?: number): Promise<void>;
   deleteRoom(orgId: string, roomId: string): Promise<void>;
   archiveRoom(orgId: string, roomId: string): Promise<void>;
   unarchiveRoom(orgId: string, roomId: string): Promise<void>;
@@ -56,16 +63,37 @@ export const useOrgsStore = create<OrgsState>((set, get) => ({
     return orgId;
   },
 
-  async updateOrg(orgId, name, typeLabel, description, avatarBlobId, coverBlobId, isPublic) {
-    await dcUpdateOrg(
+  async updateOrg(orgId, name, typeLabel, description, avatarBlobId, coverBlobId, welcomeText, customEmojiJson, orgCooldownSecs, isPublic, emailEnabled) {
+    if (isPublic && avatarBlobId) {
+      try {
+        const bytes = await getBlob(avatarBlobId, null);
+        await uploadBlobToRelay(bytes, avatarBlobId, 'application/octet-stream', DEFAULT_RELAY_URL);
+      } catch (e) {
+        console.warn('[relay] Failed to upload org avatar to relay:', e);
+      }
+    }
+    if (isPublic && coverBlobId) {
+      try {
+        const bytes = await getBlob(coverBlobId, null);
+        await uploadBlobToRelay(bytes, coverBlobId, 'application/octet-stream', DEFAULT_RELAY_URL);
+      } catch (e) {
+        console.warn('[relay] Failed to upload org cover to relay:', e);
+      }
+    }
+    const result = await dcUpdateOrg(
       orgId,
       name ?? null,
       typeLabel ?? null,
       description ?? null,
       avatarBlobId ?? null,
       coverBlobId ?? null,
+      welcomeText ?? null,
+      customEmojiJson ?? null,
+      orgCooldownSecs ?? null,
       isPublic ?? null,
+      emailEnabled ?? null,
     );
+    broadcastOp(orgId, result.opBytes);
     await get().fetchMyOrgs();
     await get().fetchRooms(orgId);
   },
@@ -81,8 +109,8 @@ export const useOrgsStore = create<OrgsState>((set, get) => ({
     return roomId;
   },
 
-  async updateRoom(orgId, roomId, name) {
-    await dcUpdateRoom(orgId, roomId, name ?? null);
+  async updateRoom(orgId, roomId, name, roomCooldownSecs) {
+    await dcUpdateRoom(orgId, roomId, name ?? null, roomCooldownSecs ?? null);
     await get().fetchRooms(orgId);
   },
 

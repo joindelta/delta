@@ -12,7 +12,7 @@ namespace gardens_core {
 
     // ── Phase 2: Profile ───────────────────────────────────────────────────
     [Throws=CoreError]
-    void create_or_update_profile(string username, string? bio, sequence<string> available_for, boolean is_public, string? avatar_blob_id);
+    void create_or_update_profile(string username, string? bio, sequence<string> available_for, boolean is_public, string? avatar_blob_id, boolean email_enabled);
 
     Profile? get_my_profile();
 
@@ -35,7 +35,8 @@ namespace gardens_core {
         string? welcome_text,
         string? custom_emoji_json,
         i64? org_cooldown_secs,
-        boolean? is_public
+        boolean? is_public,
+        boolean? email_enabled
     );
 
     [Throws=CoreError]

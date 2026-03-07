@@ -197,7 +197,7 @@ interface GardensCoreNative {
   initNetwork(relayUrl: string | null): Promise<string>;
   isNetworkInitialized(): Promise<boolean>;
   getNodeId(): Promise<string>;
-  createOrUpdateProfile(username: string, bio: string | null, availableFor: string[], isPublic: boolean, avatarBlobId: string | null): Promise<void>;
+  createOrUpdateProfile(username: string, bio: string | null, availableFor: string[], isPublic: boolean, avatarBlobId: string | null, emailEnabled: boolean): Promise<void>;
   getPkarrUrl(publicKeyHex: string): string;
   getPkarrUrlFromZ32(z32Key: string): string;
   resolvePkarr(z32Key: string): Promise<PkarrResolved | null>;
@@ -205,7 +205,7 @@ interface GardensCoreNative {
   getProfile(publicKey: string): Promise<Profile | null>;
   createOrg(name: string, typeLabel: string, description: string | null, isPublic: boolean): Promise<string>;
   listMyOrgs(): Promise<OrgSummary[]>;
-  updateOrg(orgId: string, name: string | null, typeLabel: string | null, description: string | null, avatarBlobId: string | null, coverBlobId: string | null, welcomeText: string | null, customEmojiJson: string | null, orgCooldownSecs: number | null, isPublic: boolean | null): Promise<string>; // returns base64 op bytes
+  updateOrg(orgId: string, name: string | null, typeLabel: string | null, description: string | null, avatarBlobId: string | null, coverBlobId: string | null, welcomeText: string | null, customEmojiJson: string | null, orgCooldownSecs: number | null, isPublic: boolean | null, emailEnabled: boolean | null): Promise<string>; // returns base64 op bytes
   createRoom(orgId: string, name: string): Promise<string>;
   listRooms(orgId: string, includeArchived: boolean): Promise<Room[]>;
   updateRoom(orgId: string, roomId: string, name: string | null, roomCooldownSecs: number | null): Promise<void>;
@@ -327,7 +327,7 @@ function loadNative(): GardensCoreNative {
       async initNetwork() { throw new Error('gardens_core native module not loaded'); },
       async isNetworkInitialized() { return false; },
       async getNodeId() { throw new Error('gardens_core native module not loaded'); },
-      async createOrUpdateProfile(_u: string, _b: string | null, _a: string[], _p: boolean, _av: string | null) { throw new Error('gardens_core not loaded'); },
+      async createOrUpdateProfile(_u: string, _b: string | null, _a: string[], _p: boolean, _av: string | null, _em: boolean) { throw new Error('gardens_core not loaded'); },
       getPkarrUrl() { throw new Error('gardens_core not loaded'); },
       getPkarrUrlFromZ32() { throw new Error('gardens_core not loaded'); },
       async resolvePkarr() { return null; },
@@ -422,8 +422,9 @@ export async function createOrUpdateProfile(
   availableFor: string[],
   isPublic: boolean = false,
   avatarBlobId: string | null = null,
+  emailEnabled: boolean = false,
 ): Promise<void> {
-  return native.createOrUpdateProfile(username, bio, availableFor, isPublic, avatarBlobId);
+  return native.createOrUpdateProfile(username, bio, availableFor, isPublic, avatarBlobId, emailEnabled);
 }
 
 export function getPkarrUrl(publicKeyHex: string): string {
@@ -489,8 +490,9 @@ export async function updateOrg(
   customEmojiJson: string | null = null,
   orgCooldownSecs: number | null = null,
   isPublic: boolean | null = null,
+  emailEnabled: boolean | null = null,
 ): Promise<SendResult> {
-  const opBytesBase64 = await native.updateOrg(orgId, name, typeLabel, description, avatarBlobId, coverBlobId, welcomeText, customEmojiJson, orgCooldownSecs, isPublic);
+  const opBytesBase64 = await native.updateOrg(orgId, name, typeLabel, description, avatarBlobId, coverBlobId, welcomeText, customEmojiJson, orgCooldownSecs, isPublic, emailEnabled);
   return { id: orgId, opBytes: base64ToBytes(opBytesBase64) };
 }
 

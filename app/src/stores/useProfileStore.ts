@@ -3,14 +3,46 @@ import * as Keychain from 'react-native-keychain';
 import {
   getMyProfile,
   getProfile,
+  getBlob,
+  getPkarrUrl,
   createOrUpdateProfile as dcCreateOrUpdateProfile,
   type Profile,
-} from '../ffi/deltaCore';
+} from '../ffi/gardensCore';
 
 export type { Profile };
 
-const PROFILE_PIC_SERVICE  = 'delta.profilePicUri';
-const LOCAL_USERNAME_SERVICE = 'delta.localUsername';
+export const DEFAULT_RELAY_URL = 'https://gardens-relay.stereos.workers.dev';
+
+export async function uploadBlobToRelay(
+  blobBytes: Uint8Array,
+  blobId: string,
+  mimeType: string,
+  relayBaseUrl: string,
+): Promise<void> {
+  const resp = await fetch(`${relayBaseUrl}/public-blob/${blobId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': mimeType },
+    body: blobBytes,
+  });
+  if (!resp.ok && resp.status !== 409) {
+    throw new Error(`Failed to upload blob to relay: ${resp.status}`);
+  }
+}
+
+export async function getRelayZ32(relayBaseUrl: string): Promise<string | null> {
+  try {
+    const resp = await fetch(`${relayBaseUrl}/pubkey`);
+    if (!resp.ok) return null;
+    const pubkeyHex = (await resp.text()).trim();
+    const pkarrUrl = getPkarrUrl(pubkeyHex); // returns "pk:<z32>"
+    return pkarrUrl.replace('pk:', '');
+  } catch {
+    return null;
+  }
+}
+
+const PROFILE_PIC_SERVICE  = 'gardens.profilePicUri';
+const LOCAL_USERNAME_SERVICE = 'gardens.localUsername';
 
 interface ProfileState {
   myProfile: Profile | null;
@@ -21,7 +53,7 @@ interface ProfileState {
 
   fetchMyProfile(): Promise<void>;
   fetchProfile(publicKey: string): Promise<Profile | null>;
-  createOrUpdateProfile(username: string, bio: string | null, availableFor: string[], isPublic?: boolean): Promise<void>;
+  createOrUpdateProfile(username: string, bio: string | null, availableFor: string[], isPublic?: boolean, avatarBlobId?: string | null): Promise<void>;
   setProfilePicUri(uri: string | null): Promise<void>;
   loadProfilePicUri(): Promise<void>;
   setLocalUsername(name: string): Promise<void>;
@@ -49,8 +81,19 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     return profile ?? null;
   },
 
-  async createOrUpdateProfile(username, bio, availableFor, isPublic = false) {
-    await dcCreateOrUpdateProfile(username, bio, availableFor, isPublic);
+  async createOrUpdateProfile(username, bio, availableFor, isPublic = false, avatarBlobId = null) {
+    if (isPublic) {
+      const blobToUpload = avatarBlobId ?? get().myProfile?.avatarBlobId ?? null;
+      if (blobToUpload) {
+        try {
+          const bytes = await getBlob(blobToUpload, null);
+          await uploadBlobToRelay(bytes, blobToUpload, 'application/octet-stream', DEFAULT_RELAY_URL);
+        } catch (e) {
+          console.warn('[relay] Failed to upload avatar to relay:', e);
+        }
+      }
+    }
+    await dcCreateOrUpdateProfile(username, bio, availableFor, isPublic, avatarBlobId, false);
     await get().fetchMyProfile();
   },
 

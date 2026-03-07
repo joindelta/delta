@@ -18,9 +18,9 @@ use p2panda_encryption::key_bundle::LongTermKeyBundle;
 use p2panda_store::LogStore;
 use sqlx::SqlitePool;
 
-use crate::db::{self, MessageRow, OrgRow, ProfileRow, RoomRow, DmThreadRow};
+use crate::db::{self, MessageRow, OrgRow, ProfileRow, RoomRow, DmThreadRow, EventRow};
 use crate::encryption::{Id, get_encryption};
-use crate::ops::{decode_cbor, log_ids, MessageOp, OrgOp, OrgUpdateOp, ProfileOp, ReactionOp, RoomOp, RoomDeleteOp, RoomUpdateOp, DmThreadOp};
+use crate::ops::{decode_cbor, log_ids, MessageOp, OrgOp, OrgUpdateOp, ProfileOp, ReactionOp, RoomOp, RoomDeleteOp, RoomUpdateOp, DmThreadOp, EventOp, EventUpdateOp, EventDeleteOp, EventRsvpOp};
 use crate::store::get_core;
 
 fn now_micros() -> i64 {
@@ -109,6 +109,25 @@ async fn project_tick(read_pool: &SqlitePool) -> Result<(), Box<dyn std::error::
                         )
                         .await
                     }
+                    log_ids::EVENT => {
+                        project_event(
+                            read_pool,
+                            &pk_hex,
+                            &op_hash_hex,
+                            &body_bytes,
+                            now_micros(),
+                        )
+                        .await
+                    }
+                    log_ids::EVENT_RSVP => {
+                        project_event_rsvp(
+                            read_pool,
+                            &pk_hex,
+                            &body_bytes,
+                            now_micros(),
+                        )
+                        .await
+                    }
                     log_ids::MEMBERSHIP => {
                         project_membership(read_pool, &pk_hex, &body_bytes, now_micros()).await
                     }
@@ -147,6 +166,7 @@ async fn project_profile(
             is_public: Some(if op.is_public { 1 } else { 0 }),
             created_at,
             updated_at: now,
+            email_enabled: 0, // not carried in ops; preserved via direct upsert
         },
     )
     .await?;
@@ -205,7 +225,11 @@ async fn project_org(
                 update_op.description.as_deref(),
                 update_op.avatar_blob_id.as_deref(),
                 update_op.cover_blob_id.as_deref(),
+                update_op.welcome_text.as_deref(),
+                update_op.custom_emoji_json.as_deref(),
+                update_op.org_cooldown_secs,
                 update_op.is_public,
+                None, // email_enabled not carried in ops; updated only via direct call
             ).await?;
             return Ok(());
         }
@@ -223,11 +247,15 @@ async fn project_org(
             description: op.description,
             avatar_blob_id: op.avatar_blob_id,
             cover_blob_id: op.cover_blob_id,
+            welcome_text: op.welcome_text,
+            custom_emoji_json: op.custom_emoji_json,
+            org_cooldown_secs: None,
             is_public: op.is_public as i64,
             creator_key: author_key.to_string(),
             org_pubkey: None,  // Set by creator after org creation
             org_privkey_enc: None,  // Set by creator after org creation
             created_at: now,
+            email_enabled: 0,
         },
     )
     .await?;
@@ -246,7 +274,12 @@ async fn project_room(
     // Try to decode as RoomUpdateOp first
     if let Ok(update_op) = decode_cbor::<RoomUpdateOp>(body) {
         if update_op.op_type == "update_room" {
-            db::update_room(pool, &update_op.room_id, update_op.name.as_deref()).await?;
+            db::update_room(
+                pool,
+                &update_op.room_id,
+                update_op.name.as_deref(),
+                update_op.room_cooldown_secs,
+            ).await?;
             return Ok(());
         }
     }
@@ -279,9 +312,85 @@ async fn project_room(
             enc_key_epoch: op.enc_key_epoch,
             is_archived: false,
             archived_at: None,
+            room_cooldown_secs: None,
         },
     )
     .await?;
+    Ok(())
+}
+
+async fn project_event(
+    pool: &SqlitePool,
+    author_key: &str,
+    op_hash: &str,
+    body: &[u8],
+    now: i64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if let Ok(update_op) = decode_cbor::<EventUpdateOp>(body) {
+        if update_op.op_type == "update_event" {
+            db::update_event(
+                pool,
+                &update_op.event_id,
+                update_op.title.as_deref(),
+                update_op.description.as_deref(),
+                update_op.location_type.as_deref(),
+                update_op.location_text.as_deref(),
+                update_op.location_room_id.as_deref(),
+                update_op.start_at,
+                update_op.end_at,
+            )
+            .await?;
+            return Ok(());
+        }
+    }
+
+    if let Ok(delete_op) = decode_cbor::<EventDeleteOp>(body) {
+        if delete_op.op_type == "delete_event" {
+            db::delete_event(pool, &delete_op.event_id).await?;
+            return Ok(());
+        }
+    }
+
+    let op: EventOp = decode_cbor(body)?;
+    db::insert_event(
+        pool,
+        &EventRow {
+            event_id: op_hash.to_string(),
+            org_id: op.org_id,
+            title: op.title,
+            description: op.description,
+            location_type: op.location_type,
+            location_text: op.location_text,
+            location_room_id: op.location_room_id,
+            start_at: op.start_at,
+            end_at: op.end_at,
+            created_by: author_key.to_string(),
+            created_at: now,
+            is_deleted: false,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn project_event_rsvp(
+    pool: &SqlitePool,
+    author_key: &str,
+    body: &[u8],
+    now: i64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let op: EventRsvpOp = decode_cbor(body)?;
+    match op.op_type.as_str() {
+        "set_event_rsvp" => {
+            if let Some(status) = op.status {
+                db::upsert_event_rsvp(pool, &op.event_id, author_key, &status, now).await?;
+            }
+        }
+        "clear_event_rsvp" => {
+            db::delete_event_rsvp(pool, &op.event_id, author_key).await?;
+        }
+        _ => {}
+    }
     Ok(())
 }
 
@@ -396,6 +505,19 @@ async fn project_membership(
                 )
                 .await?;
             }
+        }
+        "set_user_cooldown" => {
+            if let Some(secs) = op.cooldown_secs {
+                db::set_org_user_cooldown(pool, &op.org_id, &op.member_key, secs).await?;
+            }
+        }
+        "ice_member" => {
+            if let Some(until) = op.iced_until {
+                db::set_ice(pool, &op.org_id, &op.member_key, until).await?;
+            }
+        }
+        "unice_member" => {
+            db::clear_ice(pool, &op.org_id, &op.member_key).await?;
         }
         _ => {}
     }
