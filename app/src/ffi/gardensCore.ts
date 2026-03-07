@@ -37,6 +37,7 @@ export interface Profile {
   bio: string | null;
   availableFor: string[];
   isPublic: boolean;
+  emailEnabled?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -78,6 +79,7 @@ export interface OrgSummary {
   customEmojiJson: string | null;
   orgCooldownSecs: number | null;
   isPublic: boolean;
+  emailEnabled?: boolean;
   creatorKey: string;
   orgPubkey: string | null;  // Org's z32-encoded public key for pkarr
   createdAt: number;
@@ -283,6 +285,9 @@ interface GardensCoreNative {
   unbanMember(orgId: string, memberPublicKey: string): Promise<void>;
   muteMember(orgId: string, memberPublicKey: string, durationSeconds: number): Promise<void>;
   unmuteMember(orgId: string, memberPublicKey: string): Promise<void>;
+  ignoreUser(publicKey: string): Promise<void>;
+  unignoreUser(publicKey: string): Promise<void>;
+  listIgnoredUsers(): Promise<string[]>;
   // Phase 7 — binary data is base64-encoded over the RN bridge
   prepareOutboundEmail(
     to: string,
@@ -384,6 +389,9 @@ function loadNative(): GardensCoreNative {
       async unbanMember() { throw new Error('gardens_core not loaded'); },
       async muteMember() { throw new Error('gardens_core not loaded'); },
       async unmuteMember() { throw new Error('gardens_core not loaded'); },
+      async ignoreUser() { throw new Error('gardens_core not loaded'); },
+      async unignoreUser() { throw new Error('gardens_core not loaded'); },
+      async listIgnoredUsers() { return []; },
       async uploadBlob() { throw new Error('gardens_core not loaded'); },
       async getBlob() { throw new Error('gardens_core not loaded'); },
       async hasBlob() { return false; },
@@ -774,6 +782,18 @@ export async function muteMember(orgId: string, memberPublicKey: string, duratio
 
 export async function unmuteMember(orgId: string, memberPublicKey: string): Promise<void> {
   return native.unmuteMember(orgId, memberPublicKey);
+}
+
+export async function ignoreUser(publicKey: string): Promise<void> {
+  return native.ignoreUser(publicKey);
+}
+
+export async function unignoreUser(publicKey: string): Promise<void> {
+  return native.unignoreUser(publicKey);
+}
+
+export async function listIgnoredUsers(): Promise<string[]> {
+  return native.listIgnoredUsers();
 }
 
 // ── Phase 7: Blobs ────────────────────────────────────────────────────────────

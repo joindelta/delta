@@ -1313,6 +1313,36 @@ pub fn unban_member(org_id: String, member_public_key: String) -> Result<(), Aut
     })
 }
 
+pub fn ignore_user(public_key: String) -> Result<(), AuthError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(AuthError::NotInitialised)?;
+        let now = now_micros();
+        db::ignore_user(&core.read_pool, &public_key, now)
+            .await
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+        Ok(())
+    })
+}
+
+pub fn unignore_user(public_key: String) -> Result<(), AuthError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(AuthError::NotInitialised)?;
+        db::unignore_user(&core.read_pool, &public_key)
+            .await
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+        Ok(())
+    })
+}
+
+pub fn list_ignored_users() -> Result<Vec<String>, AuthError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(AuthError::NotInitialised)?;
+        db::list_ignored_users(&core.read_pool)
+            .await
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))
+    })
+}
+
 /// Mute a member for a specified duration.
 /// Requires Manage-level permission.
 pub fn mute_member(
