@@ -233,6 +233,72 @@ async fn project_org(
             ).await?;
             return Ok(());
         }
+        if update_op.op_type == "delete_org" {
+            // Remove reactions and messages tied to org rooms
+            sqlx::query(
+                "DELETE FROM reactions WHERE message_id IN (SELECT message_id FROM messages WHERE room_id IN (SELECT room_id FROM rooms WHERE org_id = ?))"
+            )
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM messages WHERE room_id IN (SELECT room_id FROM rooms WHERE org_id = ?)")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+
+            // Remove blob metadata for org rooms (blob store is content-addressed; metadata only)
+            sqlx::query("DELETE FROM blob_meta WHERE room_id IN (SELECT room_id FROM rooms WHERE org_id = ?)")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+
+            // Remove topic sequence tracking for org rooms
+            sqlx::query("DELETE FROM topic_seq WHERE topic_hex IN (SELECT room_id FROM rooms WHERE org_id = ?)")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+
+            sqlx::query("DELETE FROM memberships WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM rooms WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM event_rsvps WHERE event_id IN (SELECT event_id FROM events WHERE org_id = ?)")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM events WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+
+            // Remove org-scoped moderation/cooldown state
+            sqlx::query("DELETE FROM org_user_cooldowns WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM org_ice WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM org_bans WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM org_mutes WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+
+            sqlx::query("DELETE FROM organizations WHERE org_id = ?")
+                .bind(&update_op.org_id)
+                .execute(pool)
+                .await?;
+            return Ok(());
+        }
     }
 
     let op: OrgOp = decode_cbor(body)?;
@@ -449,6 +515,20 @@ async fn project_dm_thread(
     now: i64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let op: DmThreadOp = decode_cbor(body)?;
+
+    // Determine if this is a message request (sender unknown to local user)
+    let local_key = crate::store::get_core()
+        .map(|c| c.public_key_hex.clone())
+        .unwrap_or_default();
+
+    let is_request = if author_key == local_key {
+        // Our own outgoing thread — never a request
+        false
+    } else {
+        // Incoming thread — check if sender is known
+        !db::is_known_sender(pool, author_key, &local_key).await.unwrap_or(true)
+    };
+
     db::insert_dm_thread(
         pool,
         &DmThreadRow {
@@ -457,6 +537,7 @@ async fn project_dm_thread(
             recipient_key: op.recipient_key,
             created_at: now,
             last_message_at: None,
+            is_request,
         },
     )
     .await?;
