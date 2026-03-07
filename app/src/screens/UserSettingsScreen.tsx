@@ -8,11 +8,13 @@ import {
   Switch,
   ActivityIndicator,
   Alert,
+  Clipboard,
 } from 'react-native';
 import { SheetManager } from 'react-native-actions-sheet';
 import { PublicIdentityCard } from '../components/PublicIdentityCard';
 import { useProfileStore, type Profile } from '../stores/useProfileStore';
-import { createOrUpdateProfile, getMyProfile, getPkarrUrl } from '../ffi/deltaCore';
+import { useSettingsStore } from '../stores/useSettingsStore';
+import { createOrUpdateProfile, getMyProfile, getPkarrUrl } from '../ffi/gardensCore';
 
 function SettingsRow({
   label,
@@ -85,8 +87,10 @@ function ToggleRow({
 
 export function UserSettingsScreen() {
   const { fetchMyProfile, localUsername } = useProfileStore();
+  const { dndEnabled, setDnd, loadSettings } = useSettingsStore();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isPublic, setIsPublic] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(false);
   const [pkarrUrl, setPkarrUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -98,6 +102,7 @@ export function UserSettingsScreen() {
       if (p) {
         setProfile(p);
         setIsPublic(p.isPublic);
+        setEmailEnabled(p.emailEnabled ?? false);
         try {
           setPkarrUrl(getPkarrUrl(p.publicKey));
         } catch {
@@ -116,6 +121,10 @@ export function UserSettingsScreen() {
     loadProfile();
   }, [loadProfile]);
 
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
   async function handleTogglePublic(value: boolean) {
     const username = profile?.username ?? localUsername;
     if (!username) {
@@ -129,7 +138,9 @@ export function UserSettingsScreen() {
         username,
         profile?.bio ?? null,
         profile?.availableFor ?? [],
-        value
+        value,
+        profile?.avatarBlobId ?? null,
+        emailEnabled
       );
       setIsPublic(value);
       await loadProfile();
@@ -203,6 +214,7 @@ export function UserSettingsScreen() {
   const availableFor = profile?.availableFor?.length
     ? `${profile.availableFor.length} tags`
     : 'Not set';
+  const myPublicKeyZ32 = pkarrUrl?.startsWith('pk:') ? pkarrUrl.slice(3) : null;
 
   if (loading) {
     return (
@@ -239,6 +251,12 @@ export function UserSettingsScreen() {
       </Section>
 
       <Section title="Privacy">
+        <ToggleRow
+          label="Do Not Disturb"
+          description="Silence all incoming notifications"
+          value={dndEnabled}
+          onChange={(v) => setDnd(v)}
+        />
         <SettingsRow
           label="Available For"
           description="What you're open to"
@@ -271,6 +289,59 @@ export function UserSettingsScreen() {
             />
           </View>
         )}
+      </Section>
+
+      <Section title="Email">
+        <View style={s.sectionInner}>
+          <Text style={s.sectionDesc}>
+            Receive and send email at your public key address.
+          </Text>
+
+          {isPublic ? (
+            <>
+              <View style={s.addressRow}>
+                <Text style={s.addressText} numberOfLines={1}>
+                  {myPublicKeyZ32 ? `${myPublicKeyZ32}@gardens-relay.stereos.workers.dev` : '—'}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (myPublicKeyZ32) {
+                      Clipboard.setString(`${myPublicKeyZ32}@gardens-relay.stereos.workers.dev`);
+                    }
+                  }}
+                >
+                  <Text style={s.copyBtn}>Copy</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={s.toggleRow}>
+                <Text style={s.toggleLabel}>Send & receive email</Text>
+                <Switch
+                  value={emailEnabled}
+                  onValueChange={async (value) => {
+                    setEmailEnabled(value);
+                    try {
+                      await createOrUpdateProfile(
+                        profile?.username ?? localUsername ?? '',
+                        profile?.bio ?? null,
+                        profile?.availableFor ?? [],
+                        profile?.isPublic ?? false,
+                        profile?.avatarBlobId ?? null,
+                        value
+                      );
+                    } catch {
+                      setEmailEnabled(!value);
+                    }
+                  }}
+                  trackColor={{ true: '#F2E58F', false: '#333' }}
+                  thumbColor="#fff"
+                />
+              </View>
+            </>
+          ) : (
+            <Text style={s.hint}>Enable a public profile to use email.</Text>
+          )}
+        </View>
       </Section>
 
       <Section title="Security">
@@ -321,6 +392,27 @@ const s = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
   },
+  sectionInner: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  sectionDesc: { color: '#666', fontSize: 12, marginBottom: 10 },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+  },
+  addressText: { color: '#aaa', fontSize: 13, flex: 1 },
+  copyBtn: { color: '#F2E58F', fontWeight: '700' },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  toggleLabel: { color: '#fff', fontSize: 14 },
+  hint: { color: '#555', fontSize: 12 },
 
   row: {
     flexDirection: 'row',
