@@ -1,4 +1,4 @@
-//! EncryptionCore — Phase 4 stub with DeltaDgm implementation.
+//! EncryptionCore — Phase 4 stub with GardensDgm implementation.
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 
@@ -15,30 +15,30 @@ pub struct OpId(pub Hash);
 impl IdentityHandle for Id {}
 impl OperationId for OpId {}
 
-// ─── DeltaDgm — data scheme DGM ──────────────────────────────────────────────
+// ─── GardensDgm — data scheme DGM ──────────────────────────────────────────────
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaDgm;
+pub struct GardensDgm;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaDgmState {
+pub struct GardensDgmState {
     pub my_id: Id,
     pub members: HashSet<Id>,
 }
 
-impl GroupMembership<Id, OpId> for DeltaDgm {
-    type State = DeltaDgmState;
+impl GroupMembership<Id, OpId> for GardensDgm {
+    type State = GardensDgmState;
     type Error = Infallible;
 
     fn create(my_id: Id, initial_members: &[Id]) -> Result<Self::State, Self::Error> {
-        Ok(DeltaDgmState {
+        Ok(GardensDgmState {
             my_id,
             members: HashSet::from_iter(initial_members.iter().cloned()),
         })
     }
 
     fn from_welcome(my_id: Id, y: Self::State) -> Result<Self::State, Self::Error> {
-        Ok(DeltaDgmState { my_id, members: y.members })
+        Ok(GardensDgmState { my_id, members: y.members })
     }
 
     fn add(
@@ -68,13 +68,13 @@ impl GroupMembership<Id, OpId> for DeltaDgm {
 
 use p2panda_encryption::traits::AckedGroupMembership;
 
-// ─── DeltaAckedDgm — message scheme DGM ──────────────────────────────────────
+// ─── GardensAckedDgm — message scheme DGM ──────────────────────────────────────
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaAckedDgm;
+pub struct GardensAckedDgm;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaAckedDgmState {
+pub struct GardensAckedDgmState {
     pub my_id: Id,
     pub members: HashSet<Id>,
     pub removed: HashSet<Id>,
@@ -86,12 +86,12 @@ pub struct DeltaAckedDgmState {
     pub acks: HashMap<[u8; 32], HashSet<Id>>,
 }
 
-impl AckedGroupMembership<Id, OpId> for DeltaAckedDgm {
-    type State = DeltaAckedDgmState;
+impl AckedGroupMembership<Id, OpId> for GardensAckedDgm {
+    type State = GardensAckedDgmState;
     type Error = Infallible;
 
     fn create(my_id: Id, initial_members: &[Id]) -> Result<Self::State, Self::Error> {
-        Ok(DeltaAckedDgmState {
+        Ok(GardensAckedDgmState {
             my_id,
             members: HashSet::from_iter(initial_members.iter().cloned()),
             removed: HashSet::new(),
@@ -163,7 +163,7 @@ impl AckedGroupMembership<Id, OpId> for DeltaAckedDgm {
     }
 }
 
-// ─── Task 6: DeltaOrdering — Ordering<PublicKey, Hash, DeltaDgm> for rooms ───
+// ─── Task 6: GardensOrdering — Ordering<PublicKey, Hash, GardensDgm> for rooms ───
 
 use std::collections::VecDeque;
 use p2panda_encryption::crypto::xchacha20::XAeadNonce;
@@ -175,10 +175,10 @@ use p2panda_encryption::data_scheme::{
 use p2panda_encryption::traits::{GroupMessage, GroupMessageContent, Ordering};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum DeltaMessageContent {
+pub enum GardensMessageContent {
     Control {
         ctrl: DataControlMessage<Id>,
-        directs: Vec<DataDirectMessage<Id, OpId, DeltaDgm>>,
+        directs: Vec<DataDirectMessage<Id, OpId, GardensDgm>>,
     },
     Application {
         group_secret_id: GroupSecretId,
@@ -188,20 +188,20 @@ pub enum DeltaMessageContent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaMessage {
+pub struct GardensMessage {
     pub id: OpId,
     pub sender: Id,
-    pub content: DeltaMessageContent,
+    pub content: GardensMessageContent,
 }
 
-impl GroupMessage<Id, OpId, DeltaDgm> for DeltaMessage {
+impl GroupMessage<Id, OpId, GardensDgm> for GardensMessage {
     fn id(&self) -> OpId { self.id }
     fn sender(&self) -> Id { self.sender }
     fn content(&self) -> GroupMessageContent<Id> {
         match &self.content {
-            DeltaMessageContent::Control { ctrl, .. } =>
+            GardensMessageContent::Control { ctrl, .. } =>
                 GroupMessageContent::Control(ctrl.clone()),
-            DeltaMessageContent::Application { group_secret_id, nonce, ciphertext } =>
+            GardensMessageContent::Application { group_secret_id, nonce, ciphertext } =>
                 GroupMessageContent::Application {
                     group_secret_id: *group_secret_id,
                     nonce: *nonce,
@@ -209,48 +209,48 @@ impl GroupMessage<Id, OpId, DeltaDgm> for DeltaMessage {
                 },
         }
     }
-    fn direct_messages(&self) -> Vec<DataDirectMessage<Id, OpId, DeltaDgm>> {
+    fn direct_messages(&self) -> Vec<DataDirectMessage<Id, OpId, GardensDgm>> {
         match &self.content {
-            DeltaMessageContent::Control { directs, .. } => directs.clone(),
+            GardensMessageContent::Control { directs, .. } => directs.clone(),
             _ => vec![],
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaOrderingState {
+pub struct GardensOrderingState {
     my_id: Id,
     next_seq: u64,
-    queue: VecDeque<DeltaMessage>,
+    queue: VecDeque<GardensMessage>,
     welcomed: bool,
 }
 
 #[derive(Debug)]
-pub struct DeltaOrdering;
+pub struct GardensOrdering;
 
-impl DeltaOrdering {
-    pub fn init(my_id: PublicKey) -> DeltaOrderingState {
-        DeltaOrderingState { my_id: Id(my_id), next_seq: 0, queue: VecDeque::new(), welcomed: false }
+impl GardensOrdering {
+    pub fn init(my_id: PublicKey) -> GardensOrderingState {
+        GardensOrderingState { my_id: Id(my_id), next_seq: 0, queue: VecDeque::new(), welcomed: false }
     }
 }
 
-impl Ordering<Id, OpId, DeltaDgm> for DeltaOrdering {
-    type State = DeltaOrderingState;
+impl Ordering<Id, OpId, GardensDgm> for GardensOrdering {
+    type State = GardensOrderingState;
     type Error = Infallible;
-    type Message = DeltaMessage;
+    type Message = GardensMessage;
 
     fn next_control_message(
         mut y: Self::State,
         ctrl: &DataControlMessage<Id>,
-        directs: &[DataDirectMessage<Id, OpId, DeltaDgm>],
+        directs: &[DataDirectMessage<Id, OpId, GardensDgm>],
     ) -> Result<(Self::State, Self::Message), Self::Error> {
         let seq_bytes = y.next_seq.to_be_bytes();
         let id = OpId(Hash::new(&seq_bytes));
         y.next_seq += 1;
-        let msg = DeltaMessage {
+        let msg = GardensMessage {
             id,
             sender: y.my_id,
-            content: DeltaMessageContent::Control { ctrl: ctrl.clone(), directs: directs.to_vec() },
+            content: GardensMessageContent::Control { ctrl: ctrl.clone(), directs: directs.to_vec() },
         };
         Ok((y, msg))
     }
@@ -264,10 +264,10 @@ impl Ordering<Id, OpId, DeltaDgm> for DeltaOrdering {
         let seq_bytes = y.next_seq.to_be_bytes();
         let id = OpId(Hash::new(&seq_bytes));
         y.next_seq += 1;
-        let msg = DeltaMessage {
+        let msg = GardensMessage {
             id,
             sender: y.my_id,
-            content: DeltaMessageContent::Application { group_secret_id, nonce, ciphertext },
+            content: GardensMessageContent::Application { group_secret_id, nonce, ciphertext },
         };
         Ok((y, msg))
     }
@@ -291,7 +291,7 @@ impl Ordering<Id, OpId, DeltaDgm> for DeltaOrdering {
     }
 }
 
-// ─── Task 7: DeltaFsOrdering — ForwardSecureOrdering for DMs ───────────────────
+// ─── Task 7: GardensFsOrdering — ForwardSecureOrdering for DMs ───────────────────
 
 use p2panda_encryption::message_scheme::{
     ControlMessage as MsgControlMessage,
@@ -303,10 +303,10 @@ use p2panda_encryption::traits::{
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum DeltaFsMessageContent {
+pub enum GardensFsMessageContent {
     Control {
         ctrl: MsgControlMessage<Id, OpId>,
-        directs: Vec<MsgDirectMessage<Id, OpId, DeltaAckedDgm>>,
+        directs: Vec<MsgDirectMessage<Id, OpId, GardensAckedDgm>>,
     },
     Application {
         generation: Generation,
@@ -315,61 +315,61 @@ pub enum DeltaFsMessageContent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaFsMessage {
+pub struct GardensFsMessage {
     pub id: OpId,
     pub sender: Id,
-    pub content: DeltaFsMessageContent,
+    pub content: GardensFsMessageContent,
 }
 
-impl ForwardSecureGroupMessage<Id, OpId, DeltaAckedDgm> for DeltaFsMessage {
+impl ForwardSecureGroupMessage<Id, OpId, GardensAckedDgm> for GardensFsMessage {
     fn id(&self) -> OpId { self.id }
     fn sender(&self) -> Id { self.sender }
     fn content(&self) -> ForwardSecureMessageContent<Id, OpId> {
         match &self.content {
-            DeltaFsMessageContent::Control { ctrl, .. } =>
+            GardensFsMessageContent::Control { ctrl, .. } =>
                 ForwardSecureMessageContent::Control(ctrl.clone()),
-            DeltaFsMessageContent::Application { generation, ciphertext } =>
+            GardensFsMessageContent::Application { generation, ciphertext } =>
                 ForwardSecureMessageContent::Application { generation: *generation, ciphertext: ciphertext.clone() },
         }
     }
-    fn direct_messages(&self) -> Vec<MsgDirectMessage<Id, OpId, DeltaAckedDgm>> {
+    fn direct_messages(&self) -> Vec<MsgDirectMessage<Id, OpId, GardensAckedDgm>> {
         match &self.content {
-            DeltaFsMessageContent::Control { directs, .. } => directs.clone(),
+            GardensFsMessageContent::Control { directs, .. } => directs.clone(),
             _ => vec![],
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeltaFsOrderingState {
+pub struct GardensFsOrderingState {
     my_id: Id,
     next_seq: u64,
-    queue: VecDeque<DeltaFsMessage>,
+    queue: VecDeque<GardensFsMessage>,
     welcomed: bool,
 }
 
 #[derive(Debug)]
-pub struct DeltaFsOrdering;
+pub struct GardensFsOrdering;
 
-impl DeltaFsOrdering {
-    pub fn init(my_id: PublicKey) -> DeltaFsOrderingState {
-        DeltaFsOrderingState { my_id: Id(my_id), next_seq: 0, queue: VecDeque::new(), welcomed: false }
+impl GardensFsOrdering {
+    pub fn init(my_id: PublicKey) -> GardensFsOrderingState {
+        GardensFsOrderingState { my_id: Id(my_id), next_seq: 0, queue: VecDeque::new(), welcomed: false }
     }
 }
 
-impl ForwardSecureOrdering<Id, OpId, DeltaAckedDgm> for DeltaFsOrdering {
-    type State = DeltaFsOrderingState;
+impl ForwardSecureOrdering<Id, OpId, GardensAckedDgm> for GardensFsOrdering {
+    type State = GardensFsOrderingState;
     type Error = Infallible;
-    type Message = DeltaFsMessage;
+    type Message = GardensFsMessage;
 
     fn next_control_message(
         mut y: Self::State,
         ctrl: &MsgControlMessage<Id, OpId>,
-        directs: &[MsgDirectMessage<Id, OpId, DeltaAckedDgm>],
+        directs: &[MsgDirectMessage<Id, OpId, GardensAckedDgm>],
     ) -> Result<(Self::State, Self::Message), Self::Error> {
         let id = OpId(Hash::new(&y.next_seq.to_be_bytes()));
         y.next_seq += 1;
-        let msg = DeltaFsMessage { id, sender: y.my_id, content: DeltaFsMessageContent::Control { ctrl: ctrl.clone(), directs: directs.to_vec() } };
+        let msg = GardensFsMessage { id, sender: y.my_id, content: GardensFsMessageContent::Control { ctrl: ctrl.clone(), directs: directs.to_vec() } };
         Ok((y, msg))
     }
 
@@ -380,7 +380,7 @@ impl ForwardSecureOrdering<Id, OpId, DeltaAckedDgm> for DeltaFsOrdering {
     ) -> Result<(Self::State, Self::Message), Self::Error> {
         let id = OpId(Hash::new(&y.next_seq.to_be_bytes()));
         y.next_seq += 1;
-        let msg = DeltaFsMessage { id, sender: y.my_id, content: DeltaFsMessageContent::Application { generation, ciphertext } };
+        let msg = GardensFsMessage { id, sender: y.my_id, content: GardensFsMessageContent::Application { generation, ciphertext } };
         Ok((y, msg))
     }
 
@@ -413,8 +413,8 @@ mod dgm_tests {
     #[test]
     fn create_contains_initial_members() {
         let me = id(); let alice = id(); let bob = id();
-        let state = DeltaDgm::create(me, &[alice, bob]).unwrap();
-        let members = DeltaDgm::members(&state).unwrap();
+        let state = GardensDgm::create(me, &[alice, bob]).unwrap();
+        let members = GardensDgm::members(&state).unwrap();
         assert!(members.contains(&alice));
         assert!(members.contains(&bob));
     }
@@ -422,32 +422,32 @@ mod dgm_tests {
     #[test]
     fn add_member() {
         let me = id(); let alice = id();
-        let state = DeltaDgm::create(me, &[]).unwrap();
-        let state = DeltaDgm::add(state, me, alice, OpId(Hash::new(b"op1"))).unwrap();
-        assert!(DeltaDgm::members(&state).unwrap().contains(&alice));
+        let state = GardensDgm::create(me, &[]).unwrap();
+        let state = GardensDgm::add(state, me, alice, OpId(Hash::new(b"op1"))).unwrap();
+        assert!(GardensDgm::members(&state).unwrap().contains(&alice));
     }
 
     #[test]
     fn remove_member() {
         let me = id(); let alice = id();
-        let state = DeltaDgm::create(me, &[alice]).unwrap();
-        let state = DeltaDgm::remove(state, me, &alice, OpId(Hash::new(b"op1"))).unwrap();
-        assert!(!DeltaDgm::members(&state).unwrap().contains(&alice));
+        let state = GardensDgm::create(me, &[alice]).unwrap();
+        let state = GardensDgm::remove(state, me, &alice, OpId(Hash::new(b"op1"))).unwrap();
+        assert!(!GardensDgm::members(&state).unwrap().contains(&alice));
     }
 
     #[test]
     fn from_welcome_preserves_members() {
         let me = id(); let alice = id();
-        let state = DeltaDgm::create(me, &[alice]).unwrap();
-        let welcomed = DeltaDgm::from_welcome(me, state).unwrap();
-        assert!(DeltaDgm::members(&welcomed).unwrap().contains(&alice));
+        let state = GardensDgm::create(me, &[alice]).unwrap();
+        let welcomed = GardensDgm::from_welcome(me, state).unwrap();
+        assert!(GardensDgm::members(&welcomed).unwrap().contains(&alice));
     }
 
     #[test]
     fn acked_dgm_create_and_members() {
         let me = id(); let alice = id();
-        let state = DeltaAckedDgm::create(me, &[alice]).unwrap();
-        let members = DeltaAckedDgm::members_view(&state, &me).unwrap();
+        let state = GardensAckedDgm::create(me, &[alice]).unwrap();
+        let members = GardensAckedDgm::members_view(&state, &me).unwrap();
         assert!(members.contains(&alice));
     }
 
@@ -455,10 +455,10 @@ mod dgm_tests {
     fn acked_dgm_add_and_ack() {
         let me = id(); let alice = id();
         let op = OpId(Hash::new(b"add_op"));
-        let state = DeltaAckedDgm::create(me, &[]).unwrap();
-        let state = DeltaAckedDgm::add(state, me, alice, op).unwrap();
-        let state = DeltaAckedDgm::ack(state, alice, op).unwrap();
-        let members = DeltaAckedDgm::members_view(&state, &me).unwrap();
+        let state = GardensAckedDgm::create(me, &[]).unwrap();
+        let state = GardensAckedDgm::add(state, me, alice, op).unwrap();
+        let state = GardensAckedDgm::ack(state, alice, op).unwrap();
+        let members = GardensAckedDgm::members_view(&state, &me).unwrap();
         assert!(members.contains(&alice));
     }
 
@@ -466,12 +466,12 @@ mod dgm_tests {
     fn ordering_queue_and_dequeue() {
         use p2panda_encryption::data_scheme::ControlMessage;
         let me_pk = PrivateKey::new().public_key();
-        let state = DeltaOrdering::init(me_pk);
+        let state = GardensOrdering::init(me_pk);
         let dummy_ctrl = ControlMessage::Create { initial_members: vec![] };
-        let (state, msg) = DeltaOrdering::next_control_message(state, &dummy_ctrl, &[]).unwrap();
-        let state = DeltaOrdering::set_welcome(state, &msg).unwrap();
-        let state = DeltaOrdering::queue(state, &msg).unwrap();
-        let (_state, ready) = DeltaOrdering::next_ready_message(state).unwrap();
+        let (state, msg) = GardensOrdering::next_control_message(state, &dummy_ctrl, &[]).unwrap();
+        let state = GardensOrdering::set_welcome(state, &msg).unwrap();
+        let state = GardensOrdering::queue(state, &msg).unwrap();
+        let (_state, ready) = GardensOrdering::next_ready_message(state).unwrap();
         assert!(ready.is_some());
     }
 
@@ -479,12 +479,12 @@ mod dgm_tests {
     fn fs_ordering_queue_and_dequeue() {
         use p2panda_encryption::message_scheme::ControlMessage as MsgCtrl;
         let me_pk = PrivateKey::new().public_key();
-        let state = DeltaFsOrdering::init(me_pk);
+        let state = GardensFsOrdering::init(me_pk);
         let dummy_ctrl = MsgCtrl::Create { initial_members: vec![] };
-        let (state, msg) = DeltaFsOrdering::next_control_message(state, &dummy_ctrl, &[]).unwrap();
-        let state = DeltaFsOrdering::set_welcome(state, &msg).unwrap();
-        let state = DeltaFsOrdering::queue(state, &msg).unwrap();
-        let (_state, ready) = DeltaFsOrdering::next_ready_message(state).unwrap();
+        let (state, msg) = GardensFsOrdering::next_control_message(state, &dummy_ctrl, &[]).unwrap();
+        let state = GardensFsOrdering::set_welcome(state, &msg).unwrap();
+        let state = GardensFsOrdering::queue(state, &msg).unwrap();
+        let (_state, ready) = GardensFsOrdering::next_ready_message(state).unwrap();
         assert!(ready.is_some());
     }
 }
@@ -503,20 +503,20 @@ use p2panda_encryption::crypto::{Rng, x25519::SecretKey as X25519SecretKey};
 use p2panda_encryption::traits::PreKeyManager;
 
 // Concrete GroupState type aliases.
-pub type DeltaGroupState = GroupState<
+pub type GardensGroupState = GroupState<
     Id, OpId,
     KeyRegistry<Id>,
-    DeltaDgm,
+    GardensDgm,
     KeyManager,
-    DeltaOrdering,
+    GardensOrdering,
 >;
 
-pub type DeltaMsgGroupState = MsgGroupState<
+pub type GardensMsgGroupState = MsgGroupState<
     Id, OpId,
     KeyRegistry<Id>,
-    DeltaAckedDgm,
+    GardensAckedDgm,
     KeyManager,
-    DeltaFsOrdering,
+    GardensFsOrdering,
 >;
 
 pub struct EncryptionCore {
@@ -676,7 +676,7 @@ pub(crate) async fn encrypt_for_room_with_pool(
         .ok_or_else(|| EncryptionError::Init(format!("no group state for room '{}'", room_id)))?;
 
     // Deserialize snapshot → live GroupState.
-    let snapshot: DeltaGroupSnapshot = ciborium::from_reader(state_bytes.as_slice())
+    let snapshot: GardensGroupSnapshot = ciborium::from_reader(state_bytes.as_slice())
         .map_err(|e| EncryptionError::Cbor(e.to_string()))?;
     let group_state = snapshot.into_group_state();
 
@@ -687,7 +687,7 @@ pub(crate) async fn encrypt_for_room_with_pool(
 
     // Extract Application fields from the message.
     let (group_secret_id, nonce, ciphertext) = match &msg.content {
-        DeltaMessageContent::Application { group_secret_id, nonce, ciphertext } => {
+        GardensMessageContent::Application { group_secret_id, nonce, ciphertext } => {
             (*group_secret_id, *nonce, ciphertext.clone())
         }
         _ => return Err(EncryptionError::Init("send produced non-application message".into())),
@@ -698,7 +698,7 @@ pub(crate) async fn encrypt_for_room_with_pool(
     let updated_kr = new_group_state.dcgka.pki.clone();
 
     // Persist new GroupState snapshot.
-    let new_snapshot = DeltaGroupSnapshot::from_group_state(new_group_state);
+    let new_snapshot = GardensGroupSnapshot::from_group_state(new_group_state);
     let mut new_state_bytes = Vec::new();
     ciborium::into_writer(&new_snapshot, &mut new_state_bytes)
         .map_err(|e| EncryptionError::Cbor(e.to_string()))?;
@@ -758,7 +758,7 @@ pub(crate) async fn decrypt_for_room_with_pool(
         .ok_or_else(|| EncryptionError::Init(format!("no group state for room '{}'", room_id)))?;
 
     // Deserialize snapshot → live GroupState.
-    let snapshot: DeltaGroupSnapshot = ciborium::from_reader(state_bytes.as_slice())
+    let snapshot: GardensGroupSnapshot = ciborium::from_reader(state_bytes.as_slice())
         .map_err(|e| EncryptionError::Cbor(e.to_string()))?;
     let group_state = snapshot.into_group_state();
 
@@ -766,7 +766,7 @@ pub(crate) async fn decrypt_for_room_with_pool(
     let body: EncryptedBody = ciborium::from_reader(body_bytes)
         .map_err(|e| EncryptionError::Cbor(e.to_string()))?;
 
-    // Reconstruct sender PublicKey and build a DeltaMessage.
+    // Reconstruct sender PublicKey and build a GardensMessage.
     let sender_pk = p2panda_core::PublicKey::try_from(body.sender_key.as_slice())
         .map_err(|e| EncryptionError::Init(format!("invalid sender key: {:?}", e)))?;
     let sender_id = Id(sender_pk);
@@ -774,10 +774,10 @@ pub(crate) async fn decrypt_for_room_with_pool(
     // Generate a unique message id for this application message.
     let msg_id = OpId(p2panda_core::Hash::new(&body.ciphertext));
 
-    let msg = DeltaMessage {
+    let msg = GardensMessage {
         id: msg_id,
         sender: sender_id,
-        content: DeltaMessageContent::Application {
+        content: GardensMessageContent::Application {
             group_secret_id: body.secret_id,
             nonce: body.nonce,
             ciphertext: body.ciphertext,
@@ -793,7 +793,7 @@ pub(crate) async fn decrypt_for_room_with_pool(
     let updated_kr = new_group_state.dcgka.pki.clone();
 
     // Persist new GroupState snapshot.
-    let new_snapshot = DeltaGroupSnapshot::from_group_state(new_group_state);
+    let new_snapshot = GardensGroupSnapshot::from_group_state(new_group_state);
     let mut new_state_bytes = Vec::new();
     ciborium::into_writer(&new_snapshot, &mut new_state_bytes)
         .map_err(|e| EncryptionError::Cbor(e.to_string()))?;
@@ -839,30 +839,30 @@ use p2panda_encryption::data_scheme::EncryptionGroup;
 use p2panda_encryption::two_party::TwoPartyState;
 use p2panda_encryption::key_bundle::LongTermKeyBundle;
 
-/// Serializable snapshot of a `DeltaGroupState`.
+/// Serializable snapshot of a `GardensGroupState`.
 ///
 /// `GroupState<..., KeyRegistry<Id>, ..., KeyManager, ...>` cannot implement `Serialize` because
 /// the serde derive adds `KeyRegistry<Id>: Serialize` / `KeyManager: Serialize` bounds, and those
 /// marker structs don't implement `Serialize`. We work around that by pulling out all the
 /// concrete, serializable state fields manually.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DeltaGroupSnapshot {
+pub struct GardensGroupSnapshot {
     pub my_id: Id,
     // DcgkaState fields (concrete state types, not marker types)
     pub pki: p2panda_encryption::key_registry::KeyRegistryState<Id>,
     pub my_keys: p2panda_encryption::key_manager::KeyManagerState,
     pub two_party: std::collections::HashMap<Id, TwoPartyState<LongTermKeyBundle>>,
-    pub dgm: DeltaDgmState,
+    pub dgm: GardensDgmState,
     // Orderer state
-    pub orderer: DeltaOrderingState,
+    pub orderer: GardensOrderingState,
     // Secret bundle
     pub secrets: p2panda_encryption::data_scheme::SecretBundleState,
     pub is_welcomed: bool,
 }
 
-impl DeltaGroupSnapshot {
-    fn from_group_state(y: DeltaGroupState) -> Self {
-        DeltaGroupSnapshot {
+impl GardensGroupSnapshot {
+    fn from_group_state(y: GardensGroupState) -> Self {
+        GardensGroupSnapshot {
             my_id: y.my_id,
             pki: y.dcgka.pki,
             my_keys: y.dcgka.my_keys,
@@ -874,14 +874,14 @@ impl DeltaGroupSnapshot {
         }
     }
 
-    /// Reconstruct a live `DeltaGroupState` from this snapshot.
+    /// Reconstruct a live `GardensGroupState` from this snapshot.
     ///
     /// All concrete state fields are stored in the snapshot, so we can rebuild the full
     /// `GroupState` struct directly — bypassing `EncryptionGroup::init` which would reset
     /// `secrets` and `is_welcomed` to their initial values.
-    pub fn into_group_state(self) -> DeltaGroupState {
+    pub fn into_group_state(self) -> GardensGroupState {
         use p2panda_encryption::data_scheme::dcgka::DcgkaState;
-        DeltaGroupState {
+        GardensGroupState {
             my_id: self.my_id,
             dcgka: DcgkaState {
                 my_id: self.my_id,
@@ -913,14 +913,14 @@ pub(crate) async fn init_room_group_with_pool(
     let all_ids: Vec<Id> = initial_members.iter().map(|pk| Id(*pk)).collect();
 
     // Build DGM state (empty — create() will populate it inside EncryptionGroup::create).
-    let dgm_state = DeltaDgm::create(my_id, &[])
+    let dgm_state = GardensDgm::create(my_id, &[])
         .map_err(|e| EncryptionError::Init(e.to_string()))?;
 
     // Build ordering state.
-    let ord_state = DeltaOrdering::init(enc.my_public_key);
+    let ord_state = GardensOrdering::init(enc.my_public_key);
 
     // Assemble the GroupState.
-    let group_state: DeltaGroupState = EncryptionGroup::init(
+    let group_state: GardensGroupState = EncryptionGroup::init(
         my_id,
         km_state,
         kr_state,
@@ -939,7 +939,7 @@ pub(crate) async fn init_room_group_with_pool(
     let updated_kr = new_group_state.dcgka.pki.clone();
 
     // Persist the new GroupState via the serializable snapshot.
-    let snapshot = DeltaGroupSnapshot::from_group_state(new_group_state);
+    let snapshot = GardensGroupSnapshot::from_group_state(new_group_state);
     let mut state_bytes = Vec::new();
     ciborium::into_writer(&snapshot, &mut state_bytes)
         .map_err(|e| EncryptionError::Cbor(e.to_string()))?;
@@ -974,7 +974,7 @@ pub(crate) async fn init_room_group_with_pool(
 
     // Extract per-recipient direct messages from the ctrl message content.
     let directs_vec: Vec<(String, Vec<u8>)> = match &ctrl_msg.content {
-        DeltaMessageContent::Control { directs, .. } => {
+        GardensMessageContent::Control { directs, .. } => {
             let mut out = Vec::new();
             for dm in directs {
                 let recipient_hex = hex::encode(dm.recipient.0.as_bytes());
@@ -1040,7 +1040,7 @@ mod room_encrypt_tests {
 
         // Verify round-trip: snapshot must deserialize and reconstruct a live GroupState.
         let bytes = stored.unwrap();
-        let snap: DeltaGroupSnapshot = ciborium::from_reader(bytes.as_slice())
+        let snap: GardensGroupSnapshot = ciborium::from_reader(bytes.as_slice())
             .expect("stored snapshot must deserialize cleanly");
         let _reconstructed = snap.into_group_state();
         // If this doesn't panic, the round-trip works.

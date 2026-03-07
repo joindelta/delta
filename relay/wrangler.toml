@@ -16,7 +16,7 @@ id = "60ab4a818c3e4f75a3902fe7a50eabf7"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id = "rate_limit_kv_placeholder"
+id = "e07882c2076f483aaf4f67078a0ed624"
 
 [[send_email]]
 name = "EMAIL"

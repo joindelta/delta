@@ -27,7 +27,7 @@ Decrypted payload byte 0 is the type:
 - `0x02` = Deliver: `destination_node_id[32] | message`
 
 ### HKDF info string
-`b"delta:onion:v1"` — matches `HKDF_INFO` in `core/src/onion.rs`.
+`b"gardens:onion:v1"` — matches `HKDF_INFO` in `core/src/onion.rs`.
 
 ### Ed25519 → X25519 key conversion
 Same as Rust `crypto.rs`:
@@ -39,9 +39,9 @@ ed25519_pubkey → CompressedEdwardsY.to_montgomery()
 
 ### pkarr relay record TXT format
 ```
-v=delta1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>
+v=gardens1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>
 ```
-- `n` = relay hop URL (e.g. `https://relay1.delta.app/hop`)
+- `n` = relay hop URL (e.g. `https://relay1.gardens.app/hop`)
 - `a` = Worker's Ed25519 public key hex (32 bytes / 64 hex chars)
 
 This reuses the existing `name` and `avatarBlobId` fields in `PkarrResolved` — no UDL changes needed.
@@ -50,10 +50,10 @@ This reuses the existing `name` and `avatarBlobId` fields in `PkarrResolved` —
 
 ## Task 1: Android Bridge for Onion Methods
 
-The TypeScript interface already declares `buildOnionPacket` and `peelOnionLayer` but `DeltaCoreModule.kt` is missing the `@ReactMethod` implementations. Without them the app crashes at runtime on Android when these methods are called.
+The TypeScript interface already declares `buildOnionPacket` and `peelOnionLayer` but `GardensCoreModule.kt` is missing the `@ReactMethod` implementations. Without them the app crashes at runtime on Android when these methods are called.
 
 **Files:**
-- Modify: `app/android/app/src/main/java/com/deltaapp/deltacore/DeltaCoreModule.kt`
+- Modify: `app/android/app/src/main/java/com/gardensapp/gardenscore/GardensCoreModule.kt`
 
 ### Step 1: Write the failing test (manual verification)
 
@@ -63,14 +63,14 @@ Confirm the gap:
 
 ```bash
 grep -n "buildOnion\|peelOnion\|OnionHop" \
-  app/android/app/src/main/java/com/deltaapp/deltacore/DeltaCoreModule.kt
+  app/android/app/src/main/java/com/gardensapp/gardenscore/GardensCoreModule.kt
 ```
 
 Expected: no output (methods are absent).
 
 ### Step 2: Add the two `@ReactMethod` implementations
 
-Open `DeltaCoreModule.kt`. After the closing brace of `getBlob` (around line 629), and **before** the `// ── Helpers` comment, insert:
+Open `GardensCoreModule.kt`. After the closing brace of `getBlob` (around line 629), and **before** the `// ── Helpers` comment, insert:
 
 ```kotlin
   // ── Onion routing (bytes as base64 over the bridge) ───────────────────────
@@ -87,14 +87,14 @@ Open `DeltaCoreModule.kt`. After the closing brace of `getBlob` (around line 629
       try {
         val hops = (0 until hopsArray.size()).map { i ->
           val map = hopsArray.getMap(i)!!
-          uniffi.delta_core.OnionHopFfi(
+          uniffi.gardens_core.OnionHopFfi(
             pubkeyHex = map.getString("pubkeyHex")!!,
             nextUrl   = map.getString("nextUrl")!!,
           )
         }
         val destBytes  = Base64.decode(destinationNodeIdBase64, Base64.DEFAULT)
         val msgBytes   = Base64.decode(messageBase64, Base64.DEFAULT)
-        val packet     = uniffi.delta_core.buildOnionPacket(hops, destBytes, msgBytes)
+        val packet     = uniffi.gardens_core.buildOnionPacket(hops, destBytes, msgBytes)
         promise.resolve(Base64.encodeToString(packet, Base64.DEFAULT))
       } catch (e: Exception) {
         promise.reject("OnionError", e)
@@ -108,7 +108,7 @@ Open `DeltaCoreModule.kt`. After the closing brace of `getBlob` (around line 629
     scope.launch {
       try {
         val packet = Base64.decode(packetBase64, Base64.DEFAULT)
-        val peeled = uniffi.delta_core.peelOnionLayer(packet, recipientSeedHex)
+        val peeled = uniffi.gardens_core.peelOnionLayer(packet, recipientSeedHex)
         val map = Arguments.createMap()
         map.putString("peelType", peeled.peelType)
         peeled.nextHopUrl?.let { map.putString("nextHopUrl", it) }
@@ -130,10 +130,10 @@ Open `DeltaCoreModule.kt`. After the closing brace of `getBlob` (around line 629
   }
 ```
 
-Also add to the top-level import block (with the other `uniffi.delta_core.*` imports):
+Also add to the top-level import block (with the other `uniffi.gardens_core.*` imports):
 
 ```kotlin
-import uniffi.delta_core.OnionHopFfi
+import uniffi.gardens_core.OnionHopFfi
 ```
 
 ### Step 3: Verify the build
@@ -149,7 +149,7 @@ Expected: `BUILD SUCCESSFUL`. No `unresolved reference` errors.
 
 ```bash
 cd app
-git add android/app/src/main/java/com/deltaapp/deltacore/DeltaCoreModule.kt
+git add android/app/src/main/java/com/gardensapp/gardenscore/GardensCoreModule.kt
 git commit -m "feat(onion): Android bridge for buildOnionPacket and peelOnionLayer"
 ```
 
@@ -279,7 +279,7 @@ Create `relay/package.json`:
 
 ```json
 {
-  "name": "@delta/relay-worker",
+  "name": "@gardens/relay-worker",
   "version": "0.1.0",
   "private": true,
   "main": "src/index.ts",
@@ -324,7 +324,7 @@ Create `relay/tsconfig.json`:
 Create `relay/wrangler.toml`:
 
 ```toml
-name = "delta-relay"
+name = "gardens-relay"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
@@ -399,7 +399,7 @@ import { sha256, sha512 } from '@noble/hashes/sha2';
 import { bytesToHex, hexToBytes } from './crypto';
 
 const VERSION = 0x02;
-const HKDF_INFO = new TextEncoder().encode('delta:onion:v1');
+const HKDF_INFO = new TextEncoder().encode('gardens:onion:v1');
 const MIN_LEN = 1 + 32 + 24 + 16;
 
 // ── Key conversion ────────────────────────────────────────────────────────────
@@ -468,7 +468,7 @@ export function peelLayer(envelope: Uint8Array, recipientSeedHex: string): Onion
   const x25519Priv = seedToX25519Priv(seed);
   const shared = x25519.getSharedSecret(x25519Priv, epk);
 
-  // HKDF-SHA256(ikm=shared, salt=epk, info="delta:onion:v1") → 32-byte key
+  // HKDF-SHA256(ikm=shared, salt=epk, info="gardens:onion:v1") → 32-byte key
   const aesKey = hkdf(sha256, shared, epk, HKDF_INFO, 32);
 
   const plaintext = xchacha20poly1305(aesKey, nonce).decrypt(ciphertext);
@@ -519,7 +519,7 @@ export async function buildTestPacket(kind: 'forward' | 'deliver'): Promise<{
     extras = { expectedNextUrl: url, expectedInner: inner };
   } else {
     const nodeId = randomBytes(32);
-    const message = new TextEncoder().encode('hello delta');
+    const message = new TextEncoder().encode('hello gardens');
     plaintext = new Uint8Array(1 + 32 + message.length);
     plaintext[0] = 0x02;
     plaintext.set(nodeId, 1);
@@ -556,7 +556,7 @@ Expected: all 7 tests in `crypto.test.ts` + `onion.test.ts` pass.
 
 ```typescript
 /**
- * Delta Relay — Cloudflare Worker.
+ * Gardens Relay — Cloudflare Worker.
  *
  * Endpoints:
  *   POST /hop   — receive an onion packet, peel one layer, route it
@@ -682,10 +682,10 @@ describe('buildRelayTxtRecord', () => {
   it('produces the correct format', () => {
     const record = buildRelayTxtRecord(
       'aabbcc00'.repeat(8),         // 64-char pubkey hex
-      'https://relay.delta.app/hop',
+      'https://relay.gardens.app/hop',
     );
     expect(record).toBe(
-      'v=delta1;t=relay;n=https://relay.delta.app/hop;a=aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00',
+      'v=gardens1;t=relay;n=https://relay.gardens.app/hop;a=aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00',
     );
   });
 });
@@ -693,14 +693,14 @@ describe('buildRelayTxtRecord', () => {
 describe('parseRelayTxtRecord', () => {
   it('round-trips', () => {
     const pubkeyHex = 'aabbcc00'.repeat(8);
-    const hopUrl    = 'https://relay.delta.app/hop';
+    const hopUrl    = 'https://relay.gardens.app/hop';
     const record    = buildRelayTxtRecord(pubkeyHex, hopUrl);
     const parsed    = parseRelayTxtRecord(record);
     expect(parsed).toEqual({ pubkeyHex, hopUrl });
   });
 
   it('returns null for non-relay records', () => {
-    expect(parseRelayTxtRecord('v=delta1;t=user;u=alice')).toBeNull();
+    expect(parseRelayTxtRecord('v=gardens1;t=user;u=alice')).toBeNull();
   });
 });
 ```
@@ -722,7 +722,7 @@ Expected: cannot find module `./pkarr`.
  * The relay signs a DNS TXT record with its Ed25519 keypair and publishes
  * it to the mainline BitTorrent DHT via the pkarr npm package.
  *
- * TXT record format: v=delta1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>
+ * TXT record format: v=gardens1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>
  */
 
 import { Pkarr, SignedPacket, Keypair } from 'pkarr';
@@ -732,13 +732,13 @@ import { hexToBytes, bytesToHex } from './crypto';
 // ── Record builders ───────────────────────────────────────────────────────────
 
 export function buildRelayTxtRecord(pubkeyHex: string, hopUrl: string): string {
-  return `v=delta1;t=relay;n=${hopUrl};a=${pubkeyHex}`;
+  return `v=gardens1;t=relay;n=${hopUrl};a=${pubkeyHex}`;
 }
 
 export function parseRelayTxtRecord(
   txt: string,
 ): { pubkeyHex: string; hopUrl: string } | null {
-  if (!txt.startsWith('v=delta1')) return null;
+  if (!txt.startsWith('v=gardens1')) return null;
   const fields: Record<string, string> = {};
   for (const part of txt.split(';')) {
     const eq = part.indexOf('=');
@@ -758,7 +758,7 @@ export function parseRelayTxtRecord(
  * Called from the Cloudflare cron trigger every hour.
  *
  * @param seedHex   64 hex chars — Ed25519 seed
- * @param selfUrl   Public URL of this Worker (e.g. https://relay.delta.app)
+ * @param selfUrl   Public URL of this Worker (e.g. https://relay.gardens.app)
  */
 export async function publishRelaySelf(seedHex: string, selfUrl: string): Promise<void> {
   const seed    = hexToBytes(seedHex);
@@ -768,7 +768,7 @@ export async function publishRelaySelf(seedHex: string, selfUrl: string): Promis
 
   const keypair = Keypair.fromSecretKey(seed);
   const packet  = await SignedPacket.fromKeypair(keypair, (builder) => {
-    builder.txt('_delta-relay', txt, 7200);
+    builder.txt('_gardens-relay', txt, 7200);
   });
 
   const client = new Pkarr();
@@ -794,7 +794,7 @@ Edit the `scheduled` handler in `relay/src/index.ts` — replace the placeholder
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     // SELF_URL secret: the public URL of this deployed Worker
     // Set via: wrangler secret put SELF_URL
-    const selfUrl = (env as any).SELF_URL ?? 'https://delta-relay.workers.dev';
+    const selfUrl = (env as any).SELF_URL ?? 'https://gardens-relay.workers.dev';
     await publishRelaySelf(env.RELAY_SEED_HEX, selfUrl);
   },
 ```
@@ -802,7 +802,7 @@ Edit the `scheduled` handler in `relay/src/index.ts` — replace the placeholder
 Also add `SELF_URL` to `wrangler.toml` comment block:
 
 ```toml
-#   SELF_URL         Public URL of this Worker (e.g. https://relay.delta.app)
+#   SELF_URL         Public URL of this Worker (e.g. https://relay.gardens.app)
 ```
 
 ---
@@ -825,19 +825,19 @@ mod tests {
 
     #[test]
     fn parse_relay_record() {
-        let txt = "v=delta1;t=relay;n=https://relay.delta.app/hop;a=aabbccdd".repeat(1)
+        let txt = "v=gardens1;t=relay;n=https://relay.gardens.app/hop;a=aabbccdd".repeat(1)
             .replace("aabbccdd", &"ab".repeat(32));
-        // txt = "v=delta1;t=relay;n=https://relay.delta.app/hop;a=abab...ab"
-        let txt = format!("v=delta1;t=relay;n=https://relay.delta.app/hop;a={}", "ab".repeat(32));
+        // txt = "v=gardens1;t=relay;n=https://relay.gardens.app/hop;a=abab...ab"
+        let txt = format!("v=gardens1;t=relay;n=https://relay.gardens.app/hop;a={}", "ab".repeat(32));
         let record = parse_txt_record(&txt, "testz32key").unwrap();
         assert_eq!(record.record_type, "relay");
-        assert_eq!(record.name.as_deref(), Some("https://relay.delta.app/hop"));
+        assert_eq!(record.name.as_deref(), Some("https://relay.gardens.app/hop"));
         assert_eq!(record.avatar_blob_id.as_deref(), Some(&"ab".repeat(32) as &str));
     }
 
     #[test]
     fn parse_user_record_still_works() {
-        let txt = "v=delta1;t=user;u=alice;b=hello";
+        let txt = "v=gardens1;t=user;u=alice;b=hello";
         let record = parse_txt_record(txt, "testz32key").unwrap();
         assert_eq!(record.record_type, "user");
         assert_eq!(record.username.as_deref(), Some("alice"));
@@ -902,7 +902,7 @@ describe('parseRelayRecord', () => {
   it('extracts hop URL and pubkey from a relay PkarrResolved', () => {
     const record = {
       recordType: 'relay',
-      name: 'https://relay.delta.app/hop',
+      name: 'https://relay.gardens.app/hop',
       avatarBlobId: 'ab'.repeat(32),
       username: null,
       description: null,
@@ -913,7 +913,7 @@ describe('parseRelayRecord', () => {
     const hop = parseRelayRecord(record);
     expect(hop).toEqual({
       pubkeyHex: 'ab'.repeat(32),
-      nextUrl: 'https://relay.delta.app/hop',
+      nextUrl: 'https://relay.gardens.app/hop',
     });
   });
 
@@ -964,7 +964,7 @@ Expected: `Cannot find module '../src/utils/onionRoute'`.
  * Onion route utilities: resolve relay hops from pkarr and send messages.
  */
 
-import { resolvePkarr, buildOnionPacket, type PkarrResolved, type OnionHopFfi } from '../ffi/deltaCore';
+import { resolvePkarr, buildOnionPacket, type PkarrResolved, type OnionHopFfi } from '../ffi/gardensCore';
 
 /**
  * Parse a PkarrResolved record as a relay hop descriptor.
@@ -1003,7 +1003,7 @@ export async function resolveRelayHops(z32Keys: string[]): Promise<OnionHopFfi[]
  *
  * @param hops            Ordered list of relay hop descriptors (first hop is the entry).
  * @param destNodeIdHex   64 hex chars — iroh node ID of the final recipient.
- * @param messageBytes    Raw delta protocol message bytes.
+ * @param messageBytes    Raw gardens protocol message bytes.
  */
 export async function sendOnionMessage(
   hops: OnionHopFfi[],
@@ -1063,7 +1063,7 @@ import { create } from 'zustand';
 import { resolveRelayHops, type OnionHopFfi } from '../utils/onionRoute';
 
 /**
- * Hardcoded list of relay pkarr z32 keys for the Delta-operated relays.
+ * Hardcoded list of relay pkarr z32 keys for the Gardens-operated relays.
  * Update this list when new relay Workers are deployed.
  * Format: z32-encoded Ed25519 public key (the pkarr address of the relay).
  */
@@ -1121,7 +1121,7 @@ git commit -m "feat(relay): app route selection — resolveRelayHops + sendOnion
 
 | Component | File | Purpose |
 |---|---|---|
-| Android bridge | `app/android/…/DeltaCoreModule.kt` | Exposes `buildOnionPacket` / `peelOnionLayer` to RN |
+| Android bridge | `app/android/…/GardensCoreModule.kt` | Exposes `buildOnionPacket` / `peelOnionLayer` to RN |
 | Worker entry | `relay/src/index.ts` | `POST /hop` + cron publisher |
 | Worker crypto | `relay/src/onion.ts` | TypeScript port of `core/src/onion.rs` |
 | Worker pkarr | `relay/src/pkarr.ts` | Publish relay record to DHT |

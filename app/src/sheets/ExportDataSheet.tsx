@@ -12,7 +12,7 @@ import {
 import ActionSheet, { SheetManager, SheetProps } from 'react-native-actions-sheet';
 import { X, Download, FileText, Users, MessageSquare, Database } from 'lucide-react-native';
 import { useProfileStore } from '../stores/useProfileStore';
-import { listMyOrgs } from '../ffi/deltaCore';
+import { listMyOrgs } from '../ffi/gardensCore';
 
 export function ExportDataSheet(props: SheetProps<'export-data-sheet'>) {
   const { myProfile } = useProfileStore();
@@ -66,7 +66,7 @@ export function ExportDataSheet(props: SheetProps<'export-data-sheet'>) {
       // Share the data
       await Share.share({
         message: jsonData,
-        title: 'Delta Data Export',
+        title: 'Gardens Data Export',
       });
 
       SheetManager.hide('export-data-sheet');
@@ -99,7 +99,7 @@ export function ExportDataSheet(props: SheetProps<'export-data-sheet'>) {
       onPress={() => onChange(!value)}
     >
       <View style={s.optionIcon}>
-        <Icon size={22} color={value ? '#22c55e' : '#666'} />
+        <Icon size={22} color={value ? '#F2E58F' : '#666'} />
       </View>
       <View style={s.optionContent}>
         <Text style={[s.optionTitle, value && s.optionTitleSelected]}>{title}</Text>
@@ -230,7 +230,7 @@ const s = StyleSheet.create({
     borderColor: '#333',
   },
   optionSelected: {
-    borderColor: '#22c55e',
+    borderColor: '#F2E58F',
     backgroundColor: '#052e16',
   },
   optionIcon: {
@@ -246,7 +246,7 @@ const s = StyleSheet.create({
     fontWeight: '500',
   },
   optionTitleSelected: {
-    color: '#22c55e',
+    color: '#F2E58F',
   },
   optionDesc: {
     color: '#666',
@@ -263,8 +263,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: '#22c55e',
-    borderColor: '#22c55e',
+    backgroundColor: '#F2E58F',
+    borderColor: '#F2E58F',
   },
   checkmark: {
     color: '#000',
@@ -292,7 +292,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#22c55e',
+    backgroundColor: '#F2E58F',
     paddingVertical: 16,
     borderRadius: 12,
   },

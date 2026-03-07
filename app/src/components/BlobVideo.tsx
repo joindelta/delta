@@ -12,7 +12,7 @@ import { Play, Download, AlertCircle } from 'lucide-react-native';
 import { 
   hasBlob, 
   getBlob, 
-} from '../ffi/deltaCore';
+} from '../ffi/gardensCore';
 import RNFS from 'react-native-fs';
 
 // Helper to convert Uint8Array to base64 string (React Native compatible)

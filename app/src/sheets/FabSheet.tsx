@@ -29,7 +29,7 @@ export function FabSheet(props: SheetProps<'fab-sheet'>) {
   const [busy, setBusy] = useState(false);
 
   const publicKey = myProfile?.publicKey ?? keypair?.publicKeyHex ?? '';
-  const qrValue = `delta://invite?pubkey=${encodeURIComponent(publicKey)}`;
+  const qrValue = `gardens://invite?pubkey=${encodeURIComponent(publicKey)}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(qrValue)}`;
 
   function close() { SheetManager.hide('fab-sheet'); }

@@ -12,7 +12,7 @@ import { sha256, sha512 } from '@noble/hashes/sha2';
 import { bytesToHex, hexToBytes } from './crypto';
 
 const VERSION = 0x02;
-const HKDF_INFO = new TextEncoder().encode('delta:onion:v1');
+const HKDF_INFO = new TextEncoder().encode('gardens:onion:v1');
 const MIN_LEN = 1 + 32 + 24 + 16;
 
 // ── Key conversion ────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ export function peelLayer(envelope: Uint8Array, recipientSeedHex: string): Onion
   const x25519Priv = seedToX25519Priv(seed);
   const shared = x25519.getSharedSecret(x25519Priv, epk);
 
-  // HKDF-SHA256(ikm=shared, salt=epk, info="delta:onion:v1") → 32-byte key
+  // HKDF-SHA256(ikm=shared, salt=epk, info="gardens:onion:v1") → 32-byte key
   const aesKey = hkdf(sha256, shared, epk, HKDF_INFO, 32);
 
   const plaintext = xchacha20poly1305(aesKey, nonce).decrypt(ciphertext);
@@ -128,7 +128,7 @@ export async function buildTestPacket(kind: 'forward' | 'deliver'): Promise<{
     extras = { expectedNextUrl: url, expectedInner: inner };
   } else {
     const topicId = randomBytes(32);
-    const op = new TextEncoder().encode('hello delta');
+    const op = new TextEncoder().encode('hello gardens');
     plaintext = new Uint8Array(1 + 32 + op.length);
     plaintext[0] = 0x02;
     plaintext.set(topicId, 1);

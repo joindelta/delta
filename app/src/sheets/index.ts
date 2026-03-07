@@ -9,6 +9,11 @@ import { ExportDataSheet } from './ExportDataSheet';
 import { DeleteAccountSheet } from './DeleteAccountSheet';
 import { MemberActionsSheet } from './MemberActionsSheet';
 import { EditOrgSheet } from './EditOrgSheet';
+import { MessageActionsSheet } from './MessageActionsSheet';
+import { EmojiPickerSheet } from './EmojiPickerSheet';
+import { ComposeEmailSheet } from './ComposeEmailSheet';
+import { EmailDetailSheet } from './EmailDetailSheet';
+import type { InboxEmail } from '../stores/useInboxStore';
 
 registerSheet('attach-sheet', AttachSheet);
 registerSheet('profile-sheet', ProfileSheet);
@@ -20,6 +25,10 @@ registerSheet('export-data-sheet', ExportDataSheet);
 registerSheet('delete-account-sheet', DeleteAccountSheet);
 registerSheet('member-actions-sheet', MemberActionsSheet);
 registerSheet('edit-org-sheet', EditOrgSheet);
+registerSheet('message-actions-sheet', MessageActionsSheet);
+registerSheet('emoji-picker-sheet', EmojiPickerSheet);
+registerSheet('compose-email-sheet', ComposeEmailSheet);
+registerSheet('email-detail-sheet', EmailDetailSheet);
 
 declare module 'react-native-actions-sheet' {
   interface Sheets {
@@ -33,6 +42,10 @@ declare module 'react-native-actions-sheet' {
     'delete-account-sheet': SheetDefinition;
     'member-actions-sheet': SheetDefinition;
     'edit-org-sheet': SheetDefinition;
+    'message-actions-sheet': SheetDefinition;
+    'emoji-picker-sheet': SheetDefinition;
+    'compose-email-sheet': SheetDefinition<{ payload: { to?: string; subject?: string; replyToMessageId?: string } }>;
+    'email-detail-sheet': SheetDefinition<{ payload: InboxEmail }>;
   }
 }
 

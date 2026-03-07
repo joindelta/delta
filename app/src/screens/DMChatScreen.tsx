@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Lock } from 'lucide-react-native';
 import {
   View,
@@ -12,6 +12,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { MessageBubble } from '../components/MessageBubble';
 import { MessageComposer } from '../components/MessageComposer';
+import { extractMentions } from '../components/MessageText';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { useProfileStore } from '../stores/useProfileStore';
 
@@ -20,13 +21,26 @@ type Props = NativeStackScreenProps<any, 'DMChat'>;
 export function DMChatScreen({ route }: Props) {
   const { threadId, recipientKey } = route.params as { threadId: string; recipientKey: string };
   const { messages, fetchMessages, sendMessage, deleteMessage } = useMessagesStore();
-  const { myProfile } = useProfileStore();
+  const { myProfile, profileCache, fetchProfile } = useProfileStore();
   const [loading, setLoading] = useState(true);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const contextKey = threadId;
   const messageList = messages[contextKey] || [];
+
+  useEffect(() => {
+    fetchProfile(recipientKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipientKey]);
+
+  const mentionCandidates = useMemo(() => {
+    const names = new Set<string>();
+    const recipient = profileCache[recipientKey]?.username;
+    if (recipient) names.add(recipient);
+    if (myProfile?.username) names.add(myProfile.username);
+    return Array.from(names);
+  }, [profileCache, recipientKey, myProfile]);
 
   useEffect(() => {
     loadMessages();
@@ -57,6 +71,7 @@ export function DMChatScreen({ route }: Props) {
         dmThreadId: threadId,
         contentType: 'text',
         textContent: text,
+        mentions: extractMentions(text),
         replyTo: replyingTo,
       });
       setReplyingTo(null);
@@ -173,14 +188,21 @@ export function DMChatScreen({ route }: Props) {
           data={messageList}
           keyExtractor={item => item.messageId}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <MessageBubble
-              message={item}
-              isOwnMessage={item.authorKey === myProfile?.publicKey}
-              onReply={() => handleReply(item.messageId)}
-              onLongPress={() => handleLongPress(item)}
-            />
-          )}
+          renderItem={({ item }) => {
+            const isOwn = item.authorKey === myProfile?.publicKey;
+            const avatarBlobId = isOwn
+              ? myProfile?.avatarBlobId ?? null
+              : profileCache[item.authorKey]?.avatarBlobId ?? profileCache[recipientKey]?.avatarBlobId ?? null;
+            return (
+              <MessageBubble
+                message={item}
+                isOwnMessage={isOwn}
+                avatarBlobId={avatarBlobId}
+                onReply={() => handleReply(item.messageId)}
+                onLongPress={() => handleLongPress(item)}
+              />
+            );
+          }}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         />
       )}
@@ -191,6 +213,7 @@ export function DMChatScreen({ route }: Props) {
         onSendAudio={handleSendAudio}
         onSendGif={handleSendGif}
         placeholder="Message..."
+        mentionCandidates={mentionCandidates}
         replyingTo={replyingTo}
         onCancelReply={() => setReplyingTo(null)}
       />

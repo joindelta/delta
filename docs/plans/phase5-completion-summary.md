@@ -251,7 +251,7 @@ Phase 5 React Native components (not implemented):
 
 - `core/src/auth.rs` — complete membership & auth implementation (new)
 - `core/src/lib.rs` — UniFFI wrapper functions for auth
-- `core/src/delta_core.udl` — UniFFI interface definitions
+- `core/src/gardens_core.udl` — UniFFI interface definitions
 - `core/Cargo.toml` — added base64 dependency
 - `docs/plans/phase5-completion-summary.md` — this document
 

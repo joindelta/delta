@@ -15,9 +15,9 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useProfileStore } from '../stores/useProfileStore';
 import * as Keychain from 'react-native-keychain';
 
-const KEYCHAIN_SERVICE = 'delta.privateKey';
-const PUBKEY_SERVICE = 'delta.publicKey';
-const MNEMONIC_SERVICE = 'delta.mnemonic';
+const KEYCHAIN_SERVICE = 'gardens.privateKey';
+const PUBKEY_SERVICE = 'gardens.publicKey';
+const MNEMONIC_SERVICE = 'gardens.mnemonic';
 
 export function DeleteAccountSheet(props: SheetProps<'delete-account-sheet'>) {
   const { lock } = useAuthStore();
@@ -53,7 +53,7 @@ export function DeleteAccountSheet(props: SheetProps<'delete-account-sheet'>) {
 
       Alert.alert(
         'Account Deleted',
-        'Your account has been deleted. You will need to create a new account to use Delta again.',
+        'Your account has been deleted. You will need to create a new account to use Gardens again.',
         [
           {
             text: 'OK',

@@ -3,15 +3,23 @@ import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import type { Message } from '../stores/useMessagesStore';
 import { BlobImage } from './BlobImage';
 import { BlobVideo } from './BlobVideo';
-import { getBlob } from '../ffi/deltaCore';
+import { getBlob } from '../ffi/gardensCore';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 
 interface Props {
   message: Message;
   isOwnMessage: boolean;
+  avatarBlobId?: string | null;
   onReply?: () => void;
   onReact?: () => void;
   onLongPress?: () => void;
+}
+
+const AVATAR_COLORS = ['#c084fc', '#f472b6', '#fb923c', '#34d399', '#60a5fa', '#a78bfa', '#f87171'];
+function avatarColor(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 function AudioMessage({ blobHash, roomId }: { blobHash: string; roomId: string | null }) {
@@ -53,7 +61,7 @@ function AudioMessage({ blobHash, roomId }: { blobHash: string; roomId: string |
   );
 }
 
-export function MessageBubble({ message, isOwnMessage, onReply, onLongPress }: Props) {
+export function MessageBubble({ message, isOwnMessage, avatarBlobId, onReply, onLongPress }: Props) {
   if (message.isDeleted) {
     return (
       <View style={[styles.container, isOwnMessage && styles.containerOwn]}>
@@ -63,6 +71,9 @@ export function MessageBubble({ message, isOwnMessage, onReply, onLongPress }: P
       </View>
     );
   }
+
+  const initials = message.authorKey.slice(0, 2).toUpperCase();
+  const color = avatarColor(message.authorKey);
 
   return (
     <TouchableOpacity
@@ -74,58 +85,68 @@ export function MessageBubble({ message, isOwnMessage, onReply, onLongPress }: P
         <Text style={styles.author}>{message.authorKey.slice(0, 8)}...</Text>
       )}
 
-      <View style={[styles.bubble, isOwnMessage ? styles.bubbleOwn : styles.bubbleOther]}>
-        {message.replyTo && (
-          <View style={styles.replyBar}>
-            <Text style={styles.replyText}>↩ Reply</Text>
+      <View style={[styles.row, isOwnMessage && styles.rowOwn]}>
+        {avatarBlobId ? (
+          <BlobImage blobHash={avatarBlobId} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, { backgroundColor: color }]}>
+            <Text style={styles.avatarText}>{initials}</Text>
           </View>
         )}
 
-        {message.contentType === 'text' && message.textContent && (
-          <Text style={[styles.text, isOwnMessage && styles.textOwn]}>
-            {message.textContent}
-          </Text>
-        )}
-
-        {message.contentType === 'image' && message.blobId && (
-          <BlobImage
-            blobHash={message.blobId}
-            roomId={message.roomId ?? null}
-            style={styles.mediaBlobImage}
-          />
-        )}
-
-        {message.contentType === 'audio' && message.blobId && (
-          <AudioMessage blobHash={message.blobId} roomId={message.roomId ?? null} />
-        )}
-
-        {message.contentType === 'gif' && message.embedUrl && (
-          <Image
-            source={{ uri: message.embedUrl }}
-            style={styles.mediaBlobImage}
-            resizeMode="cover"
-          />
-        )}
-
-        {message.contentType === 'video' && message.blobId && message.roomId && (
-          <BlobVideo blobHash={message.blobId} topicHex={message.roomId} style={styles.mediaBlobImage} />
-        )}
-
-        <View style={styles.footer}>
-          <Text style={[styles.timestamp, isOwnMessage && styles.timestampOwn]}>
-            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-          {message.editedAt && (
-            <Text style={[styles.edited, isOwnMessage && styles.editedOwn]}> (edited)</Text>
+        <View style={[styles.bubble, isOwnMessage ? styles.bubbleOwn : styles.bubbleOther]}>
+          {message.replyTo && (
+            <View style={styles.replyBar}>
+              <Text style={styles.replyText}>↩ Reply</Text>
+            </View>
           )}
-        </View>
-      </View>
 
-      {onReply && (
-        <TouchableOpacity style={styles.replyBtn} onPress={onReply}>
-          <Text style={styles.replyBtnText}>↩</Text>
-        </TouchableOpacity>
-      )}
+          {message.contentType === 'text' && message.textContent && (
+            <Text style={[styles.text, isOwnMessage && styles.textOwn]}>
+              {message.textContent}
+            </Text>
+          )}
+
+          {message.contentType === 'image' && message.blobId && (
+            <BlobImage
+              blobHash={message.blobId}
+              roomId={message.roomId ?? null}
+              style={styles.mediaBlobImage}
+            />
+          )}
+
+          {message.contentType === 'audio' && message.blobId && (
+            <AudioMessage blobHash={message.blobId} roomId={message.roomId ?? null} />
+          )}
+
+          {message.contentType === 'gif' && message.embedUrl && (
+            <Image
+              source={{ uri: message.embedUrl }}
+              style={styles.mediaBlobImage}
+              resizeMode="cover"
+            />
+          )}
+
+          {message.contentType === 'video' && message.blobId && message.roomId && (
+            <BlobVideo blobHash={message.blobId} topicHex={message.roomId} style={styles.mediaBlobImage} />
+          )}
+
+          <View style={styles.footer}>
+            <Text style={[styles.timestamp, isOwnMessage && styles.timestampOwn]}>
+              {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+            {message.editedAt && (
+              <Text style={[styles.edited, isOwnMessage && styles.editedOwn]}> (edited)</Text>
+            )}
+          </View>
+        </View>
+
+        {onReply && (
+          <TouchableOpacity style={styles.replyBtn} onPress={onReply}>
+            <Text style={styles.replyBtnText}>↩</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </TouchableOpacity>
   );
 }
@@ -133,7 +154,11 @@ export function MessageBubble({ message, isOwnMessage, onReply, onLongPress }: P
 const styles = StyleSheet.create({
   container: { marginBottom: 12, paddingHorizontal: 16, alignItems: 'flex-start' },
   containerOwn: { alignItems: 'flex-end' },
-  author: { color: '#888', fontSize: 11, marginBottom: 4, marginLeft: 12 },
+  author: { color: '#888', fontSize: 11, marginBottom: 4, marginLeft: 36 },
+  row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  rowOwn: { flexDirection: 'row-reverse' },
+  avatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  avatarText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   bubble: { maxWidth: '75%', borderRadius: 16, padding: 12 },
   bubbleOther: { backgroundColor: '#1a1a1a' },
   bubbleOwn: { backgroundColor: '#3b82f6' },

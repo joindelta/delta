@@ -10,7 +10,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/RootNavigator';
 import NfcManager, { NfcTech, Ndef } from 'react-native-nfc-manager';
-import { verifyInviteToken } from '../ffi/deltaCore';
+import { verifyInviteToken } from '../ffi/gardensCore';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'AddMember'>;
 
@@ -59,12 +59,12 @@ export function AddMemberScreen({ route, navigation }: Props) {
         if (payloadBytes) {
           const payload = Ndef.text.decodePayload(new Uint8Array(payloadBytes));
           
-          // Payload format: "delta-invite:<base64-token>"
-          if (payload.startsWith('delta-invite:')) {
-            const token = payload.replace('delta-invite:', '');
+          // Payload format: "gardens-invite:<base64-token>"
+          if (payload.startsWith('gardens-invite:')) {
+            const token = payload.replace('gardens-invite:', '');
             await processInviteToken(token);
           } else {
-            Alert.alert('Invalid Tag', 'This NFC tag does not contain a Delta invite');
+            Alert.alert('Invalid Tag', 'This NFC tag does not contain a Gardens invite');
           }
         }
       }

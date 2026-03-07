@@ -10,7 +10,7 @@ npm install react-native-nfc-manager react-native-qrcode-svg react-native-svg
 
 ## Files Created
 
-### 1. FFI Bridge Updates (`app/src/ffi/deltaCore.ts`)
+### 1. FFI Bridge Updates (`app/src/ffi/gardensCore.ts`)
 Added TypeScript bindings for Phase 5 auth functions:
 - `generateInviteToken(orgId, accessLevel, expiryTimestamp): string`
 - `verifyInviteToken(tokenBase64, currentTimestamp): InviteTokenInfo`
@@ -41,7 +41,7 @@ Features:
 - Access level picker (Pull/Read/Write/Manage)
 - NFC support detection
 - Verifies invite tokens before adding members
-- Payload format: `delta-invite:<base64-token>`
+- Payload format: `gardens-invite:<base64-token>`
 
 ### 4. Invite Screen (`app/src/screens/InviteScreen.tsx`)
 Features:
@@ -72,7 +72,7 @@ Pull → Read → Write → Manage
 - Reads NDEF text records
 - Writes NDEF messages to tags
 - Graceful fallback when NFC not supported
-- Payload format: `delta-invite:<base64-token>`
+- Payload format: `gardens-invite:<base64-token>`
 
 ## QR Code Integration
 - Uses `react-native-qrcode-svg`

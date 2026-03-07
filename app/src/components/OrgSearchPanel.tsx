@@ -6,13 +6,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, X, Users, UserPlus, ChevronRight } from 'lucide-react-native';
-import type { Room, MemberInfo, Message } from '../ffi/deltaCore';
+import type { Room, MemberInfo, Message } from '../ffi/gardensCore';
 import {
   listMessages as dcListMessages,
   listOrgMembers,
   removeMemberFromOrg,
   changeMemberPermission,
-} from '../ffi/deltaCore';
+} from '../ffi/gardensCore';
 
 // ── Filter parsing ────────────────────────────────────────────────────────────
 
@@ -102,8 +102,8 @@ export function OrgSearchPanel({ visible, orgId, rooms, activeRoomName, onClose,
     const hasVal    = filters.find(f => f.type === 'has')?.value?.toLowerCase();
     const beforeVal = filters.find(f => f.type === 'before')?.value;
     const afterVal  = filters.find(f => f.type === 'after')?.value;
-    const beforeTs  = beforeVal ? new Date(beforeVal).getTime() : null;
-    const afterTs   = afterVal  ? new Date(afterVal).getTime()  : null;
+    const beforeTs  = beforeVal ? new Date(beforeVal).getTime() * 1000 : null;
+    const afterTs   = afterVal  ? new Date(afterVal).getTime()  * 1000 : null;
 
     setLoadingSearch(true);
     try {
@@ -115,9 +115,9 @@ export function OrgSearchPanel({ visible, orgId, rooms, activeRoomName, onClose,
           if (msg.isDeleted) continue;
           if (fromVal && !msg.authorKey.toLowerCase().includes(fromVal)) continue;
           if (afterTs  && msg.timestamp < afterTs) continue;
-          if (hasVal === 'image' && !msg.contentType.startsWith('image/')) continue;
-          if (hasVal === 'video' && !msg.contentType.startsWith('video/')) continue;
-          if (hasVal === 'gif'   && msg.contentType !== 'image/gif') continue;
+          if (hasVal === 'image' && msg.contentType !== 'image') continue;
+          if (hasVal === 'video' && msg.contentType !== 'video') continue;
+          if (hasVal === 'gif'   && msg.contentType !== 'gif') continue;
           if (text && !msg.textContent?.toLowerCase().includes(text.toLowerCase())) continue;
           all.push({ message: msg, roomName: room.name });
         }

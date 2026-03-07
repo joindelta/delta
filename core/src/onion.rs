@@ -18,7 +18,7 @@ const VERSION: u8      = 0x02;
 const EPK_LEN: usize   = 32;
 const NONCE_LEN: usize = 24;
 const MIN_LEN: usize   = 1 + EPK_LEN + NONCE_LEN + 16;
-const HKDF_INFO: &[u8] = b"delta:onion:v1";
+const HKDF_INFO: &[u8] = b"gardens:onion:v1";
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ fn decode_payload(bytes: &[u8]) -> Result<OnionPayload, OnionError> {
 pub struct OnionHop {
     /// 32-byte Ed25519 public key of this hop (raw bytes, not hex).
     pub pubkey_bytes: [u8; 32],
-    /// HTTP URL where this hop accepts onion packets (e.g. "https://relay.delta.app/hop").
+    /// HTTP URL where this hop accepts onion packets (e.g. "https://relay.gardens.app/hop").
     pub next_url: String,
 }
 
@@ -247,7 +247,7 @@ mod tests {
     fn encrypt_decrypt_deliver_roundtrip() {
         let (seed, pubkey) = random_keypair();
         let tid = [0xabu8; 32];
-        let op_bytes = b"raw delta protocol bytes";
+        let op_bytes = b"raw gardens protocol bytes";
         let payload = OnionPayload::Deliver {
             topic_id: tid,
             op: op_bytes.to_vec(),
@@ -300,7 +300,7 @@ mod tests {
     fn build_and_peel_single_hop() {
         let (hop1_seed, hop1_pk) = random_keypair();
         let tid = [0x42u8; 32];
-        let op_bytes = b"hello from delta";
+        let op_bytes = b"hello from gardens";
 
         let hops = vec![OnionHop {
             pubkey_bytes: hop1_pk,

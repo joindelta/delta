@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { ConnectionStatus } from '../ffi/deltaCore';
-import { getConnectionStatus } from '../ffi/deltaCore';
+import type { ConnectionStatus } from '../ffi/gardensCore';
+import { getConnectionStatus } from '../ffi/gardensCore';
 
 interface NetworkState {
   status: ConnectionStatus;

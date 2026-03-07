@@ -24,7 +24,7 @@ jobs:
         run: cargo test
 
   react-native:
-    name: React Native (Delta)
+    name: React Native (Gardens)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

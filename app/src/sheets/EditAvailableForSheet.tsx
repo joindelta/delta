@@ -12,7 +12,7 @@ import {
 import ActionSheet, { SheetManager, SheetProps } from 'react-native-actions-sheet';
 import { X, Plus, Trash2 } from 'lucide-react-native';
 import { useProfileStore } from '../stores/useProfileStore';
-import { createOrUpdateProfile } from '../ffi/deltaCore';
+import { createOrUpdateProfile } from '../ffi/gardensCore';
 
 const SUGGESTED_TAGS = [
   'Collaboration',
@@ -79,7 +79,9 @@ export function EditAvailableForSheet(props: SheetProps<'edit-available-for-shee
         myProfile?.username || '',
         myProfile?.bio || null,
         tags,
-        myProfile?.isPublic || false
+        myProfile?.isPublic || false,
+        myProfile?.avatarBlobId || null,
+        myProfile?.emailEnabled || false
       );
 
       await fetchMyProfile();
@@ -180,7 +182,7 @@ export function EditAvailableForSheet(props: SheetProps<'edit-available-for-shee
                     onPress={() => addTag(tag)}
                   >
                     <Text style={s.suggestedTagText}>{tag}</Text>
-                    <Plus size={12} color="#22c55e" />
+                    <Plus size={12} color="#F2E58F" />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -212,7 +214,7 @@ const s = StyleSheet.create({
   headerBtn: { padding: 4 },
   headerTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
   saveBtn: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#F2E58F',
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 16,
@@ -247,7 +249,7 @@ const s = StyleSheet.create({
   },
   addBtn: {
     width: 48,
-    backgroundColor: '#22c55e',
+    backgroundColor: '#F2E58F',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',

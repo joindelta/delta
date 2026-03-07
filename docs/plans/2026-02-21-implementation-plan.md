@@ -1,4 +1,4 @@
-# Delta — Implementation Plan
+# Gardens — Implementation Plan
 **Date:** 2026-02-21
 **Status:** Draft
 
@@ -7,7 +7,7 @@
 ## Phase 0 — Repo & Toolchain (Day 1)
 
 - [ ] `cargo new core --lib` (Rust workspace)
-- [ ] `npx react-native init DeltaApp --template react-native-template-typescript`
+- [ ] `npx react-native init GardensApp --template react-native-template-typescript`
 - [ ] Add `uniffi` to core; wire up `build.rs` for UniFFI scaffolding
 - [ ] Configure iOS + Android CI targets (GitHub Actions)
 - [ ] Add p2panda crates to `Cargo.toml`:
@@ -149,7 +149,7 @@
 ## File Structure
 
 ```
-delta/
+gardens/
 ├── core/              # Rust crate
 │   ├── src/
 │   │   ├── lib.rs
@@ -163,10 +163,10 @@ delta/
 │   │   ├── auth.rs          # p2panda-auth wrappers, invite tokens
 │   │   ├── blobs.rs         # p2panda-blobs wrappers
 │   │   └── ffi.rs           # UniFFI bindings (udl + generated)
-│   ├── delta_core.udl
+│   ├── gardens_core.udl
 │   └── Cargo.toml
 │
-└── DeltaApp/                # React Native
+└── GardensApp/                # React Native
     └── src/
         ├── navigation/      # Auth stack + Main tab navigator
         ├── screens/         # One file per screen

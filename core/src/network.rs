@@ -22,11 +22,11 @@ use p2panda_store::OperationStore;
 
 use crate::{blobs, ops, sealed_sender, store};
 
-/// ALPN protocol identifier for Delta's onion routing protocol.
-pub const ONION_ALPN: &[u8] = b"/delta/onion/1.0.0";
+/// ALPN protocol identifier for Gardens's onion routing protocol.
+pub const ONION_ALPN: &[u8] = b"/gardens/onion/1.0.0";
 
 /// ALPN protocol identifier for blob requests.
-pub const BLOB_ALPN: &[u8] = b"/delta/blob/1.0.0";
+pub const BLOB_ALPN: &[u8] = b"/gardens/blob/1.0.0";
 
 /// Maximum size for onion packets (64KB).
 pub const MAX_ONION_PACKET_SIZE: usize = 64 * 1024;

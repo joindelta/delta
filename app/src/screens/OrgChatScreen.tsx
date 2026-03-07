@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,18 +16,24 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { Menu, Search } from 'lucide-react-native';
+import { SheetManager } from 'react-native-actions-sheet';
+import { Menu, Search, Calendar } from 'lucide-react-native';
 import { useOrgsStore } from '../stores/useOrgsStore';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { useProfileStore } from '../stores/useProfileStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useOrgWelcomeStore } from '../stores/useOrgWelcomeStore';
+import { useSyncStore } from '../stores/useSyncStore';
 import { ChannelMessage } from '../components/ChannelMessage';
 import { MessageComposer } from '../components/MessageComposer';
+import { extractMentions } from '../components/MessageText';
 import { OrgSearchPanel } from '../components/OrgSearchPanel';
+import { OrgEventsPanel } from '../components/OrgEventsPanel';
 import { DebugConnectionPanel } from '../components/DebugConnectionPanel';
-import { listOrgMembers } from '../ffi/deltaCore';
+import { listOrgMembers, listIcedMembers } from '../ffi/gardensCore';
 import { BlobImage } from '../components/BlobImage';
 import { DefaultCoverShader } from '../components/DefaultCoverShader';
+import { parseCustomEmoji } from '../utils/customEmoji';
 
 const DRAWER_WIDTH = 280;
 const EDGE_HIT_WIDTH = 20;
@@ -36,7 +42,7 @@ const VEL_THRESHOLD = 0.5;
 
 // ─── Banner component ─────────────────────────────────────────────────────────
 
-function OrgBanner({ orgName, coverBlobId }: { orgName: string; coverBlobId?: string | null }) {
+function OrgBanner({ orgName, coverBlobId, avatarBlobId }: { orgName: string; coverBlobId?: string | null; avatarBlobId?: string | null }) {
   const initials = orgName.slice(0, 2).toUpperCase();
 
   return (
@@ -47,9 +53,13 @@ function OrgBanner({ orgName, coverBlobId }: { orgName: string; coverBlobId?: st
         <DefaultCoverShader width={DRAWER_WIDTH} height={120} />
       )}
       <View style={bannerStyles.content}>
-        <View style={[bannerStyles.avatar, { borderColor: '#111' }]}>
-          <Text style={bannerStyles.avatarText}>{initials}</Text>
-        </View>
+        {avatarBlobId ? (
+          <BlobImage blobHash={avatarBlobId} style={[bannerStyles.avatar, { borderColor: '#111' }]} />
+        ) : (
+          <View style={[bannerStyles.avatar, { borderColor: '#111' }]}>
+            <Text style={bannerStyles.avatarText}>{initials}</Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -77,21 +87,28 @@ export function OrgChatScreen({ route, navigation }: Props) {
 
   const { rooms, fetchRooms, createRoom, orgs } = useOrgsStore();
   const org = orgs.find(o => o.orgId === orgId);
-  const { messages, fetchMessages, sendMessage, deleteMessage } = useMessagesStore();
-  const { myProfile, profileCache, fetchProfile } = useProfileStore();
+  const { messages, reactions, fetchMessages, sendMessage, deleteMessage, toggleReaction } = useMessagesStore();
+  const { myProfile, profileCache, fetchProfile, profilePicUri } = useProfileStore();
+  const { dismissed, load: loadWelcome, setDismissed } = useOrgWelcomeStore();
+  const { subscribe: syncSubscribe, unsubscribe: syncUnsubscribe, opTick } = useSyncStore();
 
   const [activeRoomId, setActiveRoomId]     = useState<string | null>(null);
   const [activeRoomName, setActiveRoomName] = useState('');
+  const [activePane, setActivePane]         = useState<'room' | 'events'>('room');
   const [memberCount, setMemberCount]       = useState(0);
   const [isAdmin, setIsAdmin]               = useState(false);
   const [loadingRooms, setLoadingRooms]     = useState(true);
   const [loadingMsgs, setLoadingMsgs]       = useState(false);
+  const [mentionPrefill, setMentionPrefill] = useState<string | null>(null);
   const [replyingTo, setReplyingTo]         = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen]     = useState(false);
   const [isSearchOpen, setIsSearchOpen]     = useState(false);
   const [creatingRoom, setCreatingRoom]     = useState(false);
   const [newRoomName, setNewRoomName]       = useState('');
   const [roomBusy, setRoomBusy]             = useState(false);
+  const [showWelcome, setShowWelcome]       = useState(false);
+  const [icedMap, setIcedMap]               = useState<Record<string, number>>({});
+  const [memberUsernames, setMemberUsernames] = useState<string[]>([]);
 
   const flatListRef    = useRef<FlatList>(null);
   const activeRoomRef  = useRef<string | null>(null);
@@ -100,7 +117,37 @@ export function OrgChatScreen({ route, navigation }: Props) {
   const isNearBottom  = useRef(true);
 
   const orgRooms   = rooms[orgId] || [];
+  const welcomeText = org?.welcomeText?.trim() ?? '';
+  const isWelcomeDismissed = dismissed[orgId] ?? false;
+  const customEmojiList = parseCustomEmoji(org?.customEmojiJson);
+  const customEmojis = customEmojiList.reduce<Record<string, { blobId: string; mimeType: string; roomId: string | null }>>(
+    (acc, e) => {
+      if (e?.code && e?.blobId) acc[e.code] = { blobId: e.blobId, mimeType: e.mimeType, roomId: e.roomId };
+      return acc;
+    },
+    {},
+  );
+  const quickReactions = ['👍', '😂', '❤️', '🔥', '👏', ...customEmojiList.map(e => e.code)];
   const messageList = activeRoomId ? (messages[activeRoomId] || []) : [];
+  const messageByIdRef = useRef<Map<string, typeof messageList[number]>>(new Map());
+  useEffect(() => {
+    messageByIdRef.current = new Map(messageList.map(m => [m.messageId, m]));
+  }, [messageList]);
+
+  const mentionCandidates = useMemo(() => {
+    const names = new Set<string>();
+    memberUsernames.forEach(n => names.add(n));
+    Object.values(profileCache).forEach(p => {
+      if (p?.username) names.add(p.username);
+    });
+    if (myProfile?.username) names.add(myProfile.username);
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [memberUsernames, profileCache, myProfile]);
+
+  const channelCandidates = useMemo(
+    () => (orgRooms.map(r => r.name)).sort((a, b) => a.localeCompare(b)),
+    [orgRooms],
+  );
 
   // ── Drawer helpers ──────────────────────────────────────────────────────────
 
@@ -168,8 +215,11 @@ export function OrgChatScreen({ route, navigation }: Props) {
   // ── Header ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    const headerTitle = activePane === 'events'
+      ? 'Events'
+      : (activeRoomName ? `#${activeRoomName}` : orgName);
     navigation.setOptions({
-      title: activeRoomName ? `#${activeRoomName}` : orgName,
+      title: headerTitle,
       headerLeft: () => (
         <TouchableOpacity style={[s.headerBtn, { marginRight: 8 }]} onPress={openDrawer}>
           <Menu size={20} color="#fff" />
@@ -177,15 +227,17 @@ export function OrgChatScreen({ route, navigation }: Props) {
       ),
       headerRight: () => (
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity style={[s.headerBtn, { marginRight: 8 }]} onPress={() => setIsSearchOpen(true)}>
-            <Search size={18} color="#fff" />
-          </TouchableOpacity>
+          {activePane === 'room' && (
+            <TouchableOpacity style={[s.headerBtn, { marginRight: 8 }]} onPress={() => setIsSearchOpen(true)}>
+              <Search size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
           <DebugConnectionPanel />
         </View>
       ),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRoomName, navigation, orgId, orgName]);
+  }, [activePane, activeRoomName, navigation, orgId, orgName]);
 
   // ── Initial load ────────────────────────────────────────────────────────────
 
@@ -195,13 +247,44 @@ export function OrgChatScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
+  useEffect(() => {
+    loadWelcome(orgId).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
+
+  useEffect(() => {
+    if (welcomeText && !isWelcomeDismissed) {
+      setShowWelcome(true);
+    }
+  }, [welcomeText, isWelcomeDismissed]);
+
+  // Re-fetch messages when the sync worker delivers a new op for this room
+  useEffect(() => {
+    if (opTick > 0 && activeRoomId) {
+      fetchMessages(activeRoomId, null).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opTick]);
+
   useFocusEffect(
     React.useCallback(() => {
       if (activeRoomId) {
         fetchMessages(activeRoomId, null).catch(() => {});
+        syncSubscribe(activeRoomId);
       }
-      return () => {};
-    }, [activeRoomId]),
+      syncSubscribe(orgId); // org-level ops (events, emoji, member changes)
+      listIcedMembers(orgId)
+        .then((list) => {
+          const map: Record<string, number> = {};
+          list.forEach(i => { map[i.publicKey] = i.icedUntil; });
+          setIcedMap(map);
+        })
+        .catch(() => {});
+      return () => {
+        if (activeRoomId) syncUnsubscribe(activeRoomId);
+        syncUnsubscribe(orgId);
+      };
+    }, [activeRoomId, orgId]),
   );
 
   // Fetch profiles for any authors not yet in cache
@@ -234,6 +317,19 @@ export function OrgChatScreen({ route, navigation }: Props) {
           ?? useAuthStore.getState().keypair?.publicKeyHex;
         const me = members.find(m => m.publicKey === myKey);
         setIsAdmin(me?.accessLevel === 'manage');
+        try {
+          const iced = await listIcedMembers(orgId);
+          const map: Record<string, number> = {};
+          iced.forEach(i => { map[i.publicKey] = i.icedUntil; });
+          setIcedMap(map);
+        } catch {}
+        try {
+          const profiles = await Promise.all(members.map(m => fetchProfile(m.publicKey)));
+          const names = profiles
+            .map(p => p?.username)
+            .filter((name): name is string => !!name);
+          setMemberUsernames(names);
+        } catch {}
       } catch {
         // member count is non-critical
       }
@@ -247,12 +343,14 @@ export function OrgChatScreen({ route, navigation }: Props) {
   // ── Channel switch ──────────────────────────────────────────────────────────
 
   async function switchRoom(roomId: string, roomName: string) {
-    // Unsubscribe previous room, subscribe new one
-    // No sync subscriptions; fetch on demand
+    // Unsubscribe previous room, subscribe new one via TopicDO WebSocket
+    if (activeRoomRef.current) syncUnsubscribe(activeRoomRef.current);
+    syncSubscribe(roomId);
     activeRoomRef.current = roomId;
 
     setActiveRoomId(roomId);
     setActiveRoomName(roomName);
+    setActivePane('room');
     closeDrawer();
     setLoadingMsgs(true);
     try {
@@ -265,17 +363,37 @@ export function OrgChatScreen({ route, navigation }: Props) {
     }
   }
 
+  function switchEvents() {
+    setActivePane('events');
+    closeDrawer();
+  }
+
   // ── Send message ────────────────────────────────────────────────────────────
 
   async function handleSend(text: string) {
     if (!activeRoomId) return;
     try {
-      await sendMessage({ roomId: activeRoomId, contentType: 'text', textContent: text, replyTo: replyingTo ?? undefined });
+      await sendMessage({
+        roomId: activeRoomId,
+        contentType: 'text',
+        textContent: text,
+        mentions: extractMentions(text),
+        replyTo: replyingTo ?? undefined,
+      });
       setReplyingTo(null);
       await fetchMessages(activeRoomId, null);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to send');
+      const msg = err?.message || 'Failed to send';
+      if (msg.startsWith('cooldown:')) {
+        const secs = msg.replace('cooldown:', '').replace('s', '');
+        Alert.alert('Slow mode', `Please wait ${secs}s before sending again.`);
+      } else if (msg.startsWith('iced:')) {
+        const secs = msg.replace('iced:', '').replace('s', '');
+        Alert.alert('You are iced', `You can send again in ${secs}s.`);
+      } else {
+        Alert.alert('Error', msg);
+      }
     }
   }
 
@@ -287,7 +405,16 @@ export function OrgChatScreen({ route, navigation }: Props) {
       await fetchMessages(activeRoomId, null);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to send');
+      const msg = err?.message || 'Failed to send';
+      if (msg.startsWith('cooldown:')) {
+        const secs = msg.replace('cooldown:', '').replace('s', '');
+        Alert.alert('Slow mode', `Please wait ${secs}s before sending again.`);
+      } else if (msg.startsWith('iced:')) {
+        const secs = msg.replace('iced:', '').replace('s', '');
+        Alert.alert('You are iced', `You can send again in ${secs}s.`);
+      } else {
+        Alert.alert('Error', msg);
+      }
     }
   }
 
@@ -299,7 +426,16 @@ export function OrgChatScreen({ route, navigation }: Props) {
       await fetchMessages(activeRoomId, null);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to send');
+      const msg = err?.message || 'Failed to send';
+      if (msg.startsWith('cooldown:')) {
+        const secs = msg.replace('cooldown:', '').replace('s', '');
+        Alert.alert('Slow mode', `Please wait ${secs}s before sending again.`);
+      } else if (msg.startsWith('iced:')) {
+        const secs = msg.replace('iced:', '').replace('s', '');
+        Alert.alert('You are iced', `You can send again in ${secs}s.`);
+      } else {
+        Alert.alert('Error', msg);
+      }
     }
   }
 
@@ -311,7 +447,16 @@ export function OrgChatScreen({ route, navigation }: Props) {
       await fetchMessages(activeRoomId, null);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to send');
+      const msg = err?.message || 'Failed to send';
+      if (msg.startsWith('cooldown:')) {
+        const secs = msg.replace('cooldown:', '').replace('s', '');
+        Alert.alert('Slow mode', `Please wait ${secs}s before sending again.`);
+      } else if (msg.startsWith('iced:')) {
+        const secs = msg.replace('iced:', '').replace('s', '');
+        Alert.alert('You are iced', `You can send again in ${secs}s.`);
+      } else {
+        Alert.alert('Error', msg);
+      }
     }
   }
 
@@ -355,7 +500,9 @@ export function OrgChatScreen({ route, navigation }: Props) {
     <View style={s.root}>
 
       {/* Chat area */}
-      {loadingMsgs ? (
+      {activePane === 'events' ? (
+        <OrgEventsPanel orgId={orgId} orgName={orgName} rooms={orgRooms} />
+      ) : loadingMsgs ? (
         <View style={s.center}>
           <ActivityIndicator color="#fff" />
         </View>
@@ -372,27 +519,74 @@ export function OrgChatScreen({ route, navigation }: Props) {
               const isGrouped = prev?.authorKey === item.authorKey;
               const profile = profileCache[item.authorKey];
               const authorUsername = profile?.username ?? item.authorKey.slice(0, 8);
-              const authorAvatarBlobId = profile?.avatarBlobId ?? null;
+              const isOwn = item.authorKey === myProfile?.publicKey;
+              const authorAvatarBlobId = (isOwn ? myProfile?.avatarBlobId : profile?.avatarBlobId) ?? null;
+              const authorAvatarUri = isOwn ? profilePicUri : null;
+              const replyToMsg = item.replyTo ? messageByIdRef.current.get(item.replyTo) : null;
+              const replyProfile = replyToMsg ? profileCache[replyToMsg.authorKey] : null;
+              const replyToUsername = replyToMsg
+                ? (replyProfile?.username ?? replyToMsg.authorKey.slice(0, 8))
+                : null;
+              const replyToPreview = replyToMsg && replyToUsername ? {
+                username: replyToUsername,
+                isDeleted: replyToMsg.isDeleted,
+                text: replyToMsg.textContent
+                  ?? (replyToMsg.contentType === 'image' ? 'Image'
+                    : replyToMsg.contentType === 'audio' ? 'Voice message'
+                    : replyToMsg.contentType === 'gif' ? 'GIF'
+                    : replyToMsg.contentType === 'video' ? 'Video'
+                    : 'Message'),
+              } : null;
+              const myKey = myProfile?.publicKey ?? useAuthStore.getState().keypair?.publicKeyHex ?? '';
               const canDelete = item.authorKey === myProfile?.publicKey || isAdmin;
+              const icedUntil = icedMap[item.authorKey];
+              const isIced = typeof icedUntil === 'number' && icedUntil > Date.now() * 1000;
+              const reactionList = reactions[item.messageId] || [];
+              const summary = Object.values(
+                reactionList.reduce<Record<string, { emoji: string; count: number; reactedByMe: boolean }>>((acc, r) => {
+                  const entry = acc[r.emoji] ?? { emoji: r.emoji, count: 0, reactedByMe: false };
+                  entry.count += 1;
+                  if (r.reactorKey === myKey) entry.reactedByMe = true;
+                  acc[r.emoji] = entry;
+                  return acc;
+                }, {})
+              );
 
               return (
                 <ChannelMessage
                   message={item}
-                  isOwnMessage={item.authorKey === myProfile?.publicKey}
+                  isOwnMessage={isOwn}
                   isGrouped={isGrouped}
                   authorUsername={authorUsername}
                   authorAvatarBlobId={authorAvatarBlobId}
-                  onReply={() => setReplyingTo(item.messageId)}
+                  authorAvatarUri={authorAvatarUri}
+                  authorIced={isIced}
+                  replyToPreview={replyToPreview}
+                  reactions={summary}
+                  customEmojis={customEmojis}
+                  onToggleReaction={async (emoji) => {
+                    if (!myKey) return;
+                    await toggleReaction(item.messageId, emoji, myKey, item.roomId);
+                  }}
+                  onReply={() => {
+                    setReplyingTo(item.messageId);
+                    setMentionPrefill(`@${authorUsername} `);
+                  }}
                   onLongPress={() => {
-                    const actions: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'default' | 'destructive' }> = [
-                      { text: 'Reply', onPress: () => setReplyingTo(item.messageId) },
-                    ];
-
-                    if (canDelete && !item.isDeleted) {
-                      actions.push({
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: () => {
+                    SheetManager.show('message-actions-sheet', {
+                      payload: {
+                        canDelete: canDelete && !item.isDeleted,
+                        onReply: () => {
+                          setReplyingTo(item.messageId);
+                          setMentionPrefill(`@${authorUsername} `);
+                        },
+                        quickReactions,
+                        customEmojis,
+                        onReact: async (emoji: string) => {
+                          if (!myKey) return;
+                          await toggleReaction(item.messageId, emoji, myKey, item.roomId);
+                        },
+                        onDelete: async () => {
                           Alert.alert(
                             'Delete Message',
                             'Are you sure you want to delete this message?',
@@ -412,11 +606,8 @@ export function OrgChatScreen({ route, navigation }: Props) {
                             ]
                           );
                         },
-                      });
-                    }
-
-                    actions.push({ text: 'Cancel', style: 'cancel' });
-                    Alert.alert('Message Actions', 'Choose an action', actions);
+                      },
+                    });
                   }}
                 />
               );
@@ -444,8 +635,14 @@ export function OrgChatScreen({ route, navigation }: Props) {
             onSendAudio={handleSendAudio}
             onSendGif={handleSendGif}
             placeholder={`Message #${activeRoomName}`}
+            mentionCandidates={mentionCandidates}
+            channelCandidates={channelCandidates}
+            prefillText={mentionPrefill}
+            onPrefillApplied={() => setMentionPrefill(null)}
             replyingTo={replyingTo}
             onCancelReply={() => setReplyingTo(null)}
+            customEmojiCodes={customEmojiList.map(e => e.code)}
+            customEmojis={customEmojis}
           />
         </>
       ) : (
@@ -475,7 +672,7 @@ export function OrgChatScreen({ route, navigation }: Props) {
           style={[s.drawer, { transform: [{ translateX: drawerX }] }]}
           {...drawerPan.panHandlers}
         >
-          <OrgBanner orgName={orgName} coverBlobId={org?.coverBlobId} />
+          <OrgBanner orgName={orgName} coverBlobId={org?.coverBlobId} avatarBlobId={org?.avatarBlobId} />
 
           <View style={s.orgInfo}>
             <View style={s.orgInfoRow}>
@@ -495,6 +692,15 @@ export function OrgChatScreen({ route, navigation }: Props) {
               </Text>
             )}
           </View>
+
+          {welcomeText ? (
+            <View style={s.welcomeCard}>
+              <Text style={s.welcomeTitle}>Welcome</Text>
+              <Text style={s.welcomeBody} numberOfLines={4}>
+                {welcomeText}
+              </Text>
+            </View>
+          ) : null}
 
           {creatingRoom ? (
             /* ── Inline create-channel form ── */
@@ -533,6 +739,18 @@ export function OrgChatScreen({ route, navigation }: Props) {
           ) : (
             /* ── Channel list ── */
             <ScrollView style={s.drawerScroll} showsVerticalScrollIndicator={false}>
+              <TouchableOpacity
+                style={[s.channelRow, activePane === 'events' && s.channelRowActive]}
+                onPress={switchEvents}
+              >
+                <View style={s.channelRowContent}>
+                  <Calendar size={16} color={activePane === 'events' ? '#fff' : '#777'} />
+                  <Text style={[s.channelText, activePane === 'events' && s.channelTextActive]}>
+                    Events
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
               <Text style={s.sectionLabel}>CHANNELS</Text>
 
               {orgRooms.map(room => (
@@ -601,6 +819,38 @@ export function OrgChatScreen({ route, navigation }: Props) {
         </View>
       </Modal>
 
+      {/* Welcome modal (first join) */}
+      <Modal
+        visible={showWelcome}
+        transparent
+        animationType="fade"
+        onRequestClose={async () => {
+          await setDismissed(orgId, true);
+          setShowWelcome(false);
+        }}
+      >
+        <Pressable
+          style={[s.modalOverlay, StyleSheet.absoluteFill]}
+          onPress={async () => {
+            await setDismissed(orgId, true);
+            setShowWelcome(false);
+          }}
+        />
+        <View style={s.welcomeModal}>
+          <Text style={s.welcomeModalTitle}>Welcome to {orgName}</Text>
+          <Text style={s.welcomeModalBody}>{welcomeText}</Text>
+          <TouchableOpacity
+            style={s.welcomeModalBtn}
+            onPress={async () => {
+              await setDismissed(orgId, true);
+              setShowWelcome(false);
+            }}
+          >
+            <Text style={s.welcomeModalBtnText}>Got it</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
       {/* Org search + members panel */}
       <OrgSearchPanel
         visible={isSearchOpen}
@@ -642,11 +892,25 @@ const s = StyleSheet.create({
   settingsBtnText: { color: '#888', fontSize: 16 },
   drawerScroll: { flex: 1 },
 
+  welcomeCard: {
+    marginHorizontal: 12,
+    marginBottom: 6,
+    backgroundColor: '#0f0f0f',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  welcomeTitle: { color: '#bbb', fontSize: 11, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 },
+  welcomeBody: { color: '#cfcfcf', fontSize: 13, lineHeight: 18 },
+
   sectionLabel: { color: '#555', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4 },
   sectionDivider: { height: 1, backgroundColor: '#1a1a1a', marginHorizontal: 16, marginTop: 12 },
 
   channelRow:       { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 6, marginHorizontal: 8 },
   channelRowActive: { backgroundColor: '#1e1e1e' },
+  channelRowContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   channelText:      { color: '#777', fontSize: 15 },
   channelTextActive:{ color: '#fff', fontWeight: '600' },
   newChannelRow:       { paddingHorizontal: 16, paddingVertical: 9, marginHorizontal: 8 },
@@ -663,6 +927,22 @@ const s = StyleSheet.create({
   modalCreateBtn:  { backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, minWidth: 72, alignItems: 'center' },
   modalCreateText: { color: '#fff', fontWeight: '700' },
 
+  welcomeModal: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    top: '30%',
+    backgroundColor: '#111',
+    borderRadius: 14,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#1d1d1d',
+  },
+  welcomeModalTitle: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 10 },
+  welcomeModalBody: { color: '#c9c9c9', fontSize: 14, lineHeight: 20, marginBottom: 16 },
+  welcomeModalBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, alignSelf: 'flex-end' },
+  welcomeModalBtnText: { color: '#fff', fontWeight: '700' },
+
   // Inline create form (in drawer)
   createForm:      { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#1a1a1a' },
   createInput:     { backgroundColor: '#1a1a1a', color: '#fff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#333', fontSize: 15, marginBottom: 12 },
@@ -672,4 +952,5 @@ const s = StyleSheet.create({
   createConfirmBtn:{ backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, minWidth: 72, alignItems: 'center' },
   createConfirmBtnDisabled: { backgroundColor: '#1e3a5f', opacity: 0.6 },
   createConfirmText:{ color: '#fff', fontWeight: '700' },
+
 });

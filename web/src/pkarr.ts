@@ -22,17 +22,18 @@ export interface ResolvedRecord {
   coverBlobId?: string;
   relayUrl?: string;
   relayPubkey?: string;
+  relayZ32?: string;  // z32 pubkey of the owner's relay
   publicKey: string;
 }
 
 /**
- * Parse a delta TXT record string.
+ * Parse a gardens TXT record string.
  * Formats:
- *   v=delta1;t=user;u=<username>;b=<bio>;a=<avatar>
- *   v=delta1;t=org;n=<name>;d=<desc>;a=<avatar>;c=<cover>
- *   v=delta1;t=relay;n=<url>;a=<pubkey>
+ *   v=gardens1;t=user;u=<username>;b=<bio>;a=<avatar>
+ *   v=gardens1;t=org;n=<name>;d=<desc>;a=<avatar>;c=<cover>
+ *   v=gardens1;t=relay;n=<url>;a=<pubkey>
  */
-function parseDeltaRecord(txt: string, z32Key: string): ResolvedRecord {
+function parseGardensRecord(txt: string, z32Key: string): ResolvedRecord {
   const fields: Record<string, string> = {};
 
   for (const part of txt.split(';')) {
@@ -54,6 +55,7 @@ function parseDeltaRecord(txt: string, z32Key: string): ResolvedRecord {
     coverBlobId: fields['c'],
     relayUrl: fields['n'], // For relay records, 'n' is the URL
     relayPubkey: fields['a'], // For relay records, 'a' is the pubkey
+    relayZ32: fields['rl'],
     publicKey: z32Key,
   };
 }
@@ -101,29 +103,29 @@ export async function resolvePkarr(z32Key: string): Promise<ResolvedRecord | nul
       console.log(`[pkarr] Answer: type=${answer.type}, name=${answer.name}`);
     }
 
-    // Look for _delta TXT records
+    // Look for _gardens TXT records
     for (const answer of packet.answers || []) {
-      if (answer.type === 'TXT' && (answer.name === '_delta' || answer.name?.startsWith('_delta.'))) {
+      if (answer.type === 'TXT' && (answer.name === '_gardens' || answer.name?.startsWith('_gardens.'))) {
         const txtData = (answer as dns.TxtAnswer).data;
         const chunks = Array.isArray(txtData) ? txtData : [txtData];
         if (chunks.length > 0) {
           const txtValue = new TextDecoder().decode(chunks[0] as Uint8Array);
-          if (txtValue.startsWith('v=delta1')) {
-            return parseDeltaRecord(txtValue, z32Key);
+          if (txtValue.startsWith('v=gardens1')) {
+            return parseGardensRecord(txtValue, z32Key);
           }
         }
       }
     }
 
-    // Also check for relay records at _delta-relay
+    // Also check for relay records at _gardens-relay
     for (const answer of packet.answers || []) {
-      if (answer.type === 'TXT' && (answer.name === '_delta-relay' || answer.name?.startsWith('_delta-relay.'))) {
+      if (answer.type === 'TXT' && (answer.name === '_gardens-relay' || answer.name?.startsWith('_gardens-relay.'))) {
         const txtData = (answer as dns.TxtAnswer).data;
         const chunks = Array.isArray(txtData) ? txtData : [txtData];
         if (chunks.length > 0) {
           const txtValue = new TextDecoder().decode(chunks[0] as Uint8Array);
-          if (txtValue.startsWith('v=delta1')) {
-            return parseDeltaRecord(txtValue, z32Key);
+          if (txtValue.startsWith('v=gardens1')) {
+            return parseGardensRecord(txtValue, z32Key);
           }
         }
       }
@@ -138,14 +140,14 @@ export async function resolvePkarr(z32Key: string): Promise<ResolvedRecord | nul
 
 /**
  * Resolve a pkarr key from a custom domain's DNS TXT record.
- * Looks for _delta.<domain> TXT record containing pk:<z32-key>
+ * Looks for _gardens.<domain> TXT record containing pk:<z32-key>
  * @param domain - Custom domain (e.g., "example.com")
  * @returns The z32-encoded public key if found, null otherwise
  */
 export async function resolveDomainToPkarr(domain: string): Promise<string | null> {
   try {
     // Use Cloudflare's DNS over HTTPS API
-    const dnsName = `_delta.${domain}`;
+    const dnsName = `_gardens.${domain}`;
     const response = await fetch(
       `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(dnsName)}&type=TXT`,
       {

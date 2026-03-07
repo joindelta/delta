@@ -10,8 +10,8 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import type { MainStackParamList } from '../navigation/RootNavigator';
-import type { MemberInfo } from '../ffi/deltaCore';
-import { listOrgMembers, getProfile } from '../ffi/deltaCore';
+import type { MemberInfo } from '../ffi/gardensCore';
+import { listOrgMembers, getProfile } from '../ffi/gardensCore';
 import { BlobImage } from '../components/BlobImage';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'MemberList'>;

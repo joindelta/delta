@@ -11,10 +11,10 @@ npm install react-native-nfc-manager react-native-qrcode-svg react-native-svg
 ### 2. Configure Platform Permissions
 
 #### iOS
-Add to `ios/DeltaApp/Info.plist`:
+Add to `ios/GardensApp/Info.plist`:
 ```xml
 <key>NFCReaderUsageDescription</key>
-<string>Delta needs NFC access to read invite tags</string>
+<string>Gardens needs NFC access to read invite tags</string>
 ```
 
 Enable NFC capability in Xcode (see `phase5-nfc-setup.md` for details).
@@ -78,7 +78,7 @@ navigation.navigate('AddMember', {
 
 ### Generate Invite Token
 ```typescript
-import { generateInviteToken } from '../ffi/deltaCore';
+import { generateInviteToken } from '../ffi/gardensCore';
 
 const expiryTimestamp = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
 const token = generateInviteToken(orgId, 'Read', expiryTimestamp);
@@ -87,7 +87,7 @@ console.log('Invite token:', token);
 
 ### Verify Invite Token
 ```typescript
-import { verifyInviteToken } from '../ffi/deltaCore';
+import { verifyInviteToken } from '../ffi/gardensCore';
 
 try {
   const info = verifyInviteToken(token, Date.now());
@@ -101,14 +101,14 @@ try {
 
 ### Add Member
 ```typescript
-import { addMemberDirect } from '../ffi/deltaCore';
+import { addMemberDirect } from '../ffi/gardensCore';
 
 await addMemberDirect(orgId, memberPublicKey, 'Read');
 ```
 
 ### List Members
 ```typescript
-import { listOrgMembers } from '../ffi/deltaCore';
+import { listOrgMembers } from '../ffi/gardensCore';
 
 const members = await listOrgMembers(orgId);
 members.forEach(member => {
@@ -118,14 +118,14 @@ members.forEach(member => {
 
 ### Change Permission
 ```typescript
-import { changeMemberPermission } from '../ffi/deltaCore';
+import { changeMemberPermission } from '../ffi/gardensCore';
 
 await changeMemberPermission(orgId, memberPublicKey, 'Write');
 ```
 
 ### Remove Member
 ```typescript
-import { removeMemberFromOrg } from '../ffi/deltaCore';
+import { removeMemberFromOrg } from '../ffi/gardensCore';
 
 await removeMemberFromOrg(orgId, memberPublicKey);
 ```
@@ -147,7 +147,7 @@ Hierarchy (each level includes permissions of lower levels):
 All auth functions can throw `AuthError`:
 
 ```typescript
-import { AuthError } from '../ffi/deltaCore';
+import { AuthError } from '../ffi/gardensCore';
 
 try {
   await addMemberDirect(orgId, memberKey, 'Read');
@@ -178,7 +178,7 @@ try {
 2. User taps "Write NFC" button
 3. App requests NFC technology
 4. User holds phone near blank NFC tag
-5. App writes NDEF text record: `delta-invite:<token>`
+5. App writes NDEF text record: `gardens-invite:<token>`
 6. Success confirmation shown
 
 ### Reading Invite from NFC Tag
@@ -186,7 +186,7 @@ try {
 2. App requests NFC technology
 3. User holds phone near NFC tag
 4. App reads NDEF text record
-5. App extracts token from `delta-invite:<token>` format
+5. App extracts token from `gardens-invite:<token>` format
 6. App verifies token signature and expiry
 7. App shows confirmation dialog
 8. User confirms to add member

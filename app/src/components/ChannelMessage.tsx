@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import type { Message } from '../stores/useMessagesStore';
 import { BlobImage } from './BlobImage';
+import { DEFAULT_RELAY_URL } from '../stores/useProfileStore';
 import { BlobVideo } from './BlobVideo';
-import { getBlob } from '../ffi/deltaCore';
+import { getBlob } from '../ffi/gardensCore';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 import { MessageText, extractUrls } from './MessageText';
 import { LinkPreview } from './LinkPreview';
+import { Mail } from 'lucide-react-native';
 
 const AVATAR_COLORS = ['#5865F2', '#57F287', '#FEE75C', '#EB459E', '#ED4245', '#3498DB', '#E67E22'];
 
@@ -22,27 +24,46 @@ function Avatar({
   authorKey,
   username,
   avatarBlobId,
+  avatarUri,
+  isIced,
 }: {
   authorKey: string;
   username: string;
   avatarBlobId: string | null;
+  avatarUri?: string | null;
+  isIced?: boolean;
 }) {
   const color = avatarColor(authorKey);
   const initials = username.slice(0, 2).toUpperCase();
 
+  if (avatarUri) {
+    return (
+      <View style={styles.avatarWrap}>
+        <Image source={{ uri: avatarUri }} style={[styles.avatar, { borderRadius: 18 }]} />
+        {isIced && <Text style={styles.iceBadge}>🧊</Text>}
+      </View>
+    );
+  }
+
   if (avatarBlobId) {
     return (
-      <BlobImage
-        blobHash={avatarBlobId}
-        roomId={null}
-        style={[styles.avatar, { borderRadius: 18 }]}
-      />
+      <View style={styles.avatarWrap}>
+        <BlobImage
+          blobHash={avatarBlobId}
+          roomId={null}
+          peerPublicKey={authorKey}
+          publicRelayUrl={DEFAULT_RELAY_URL}
+          style={[styles.avatar, { borderRadius: 18 }]}
+        />
+        {isIced && <Text style={styles.iceBadge}>🧊</Text>}
+      </View>
     );
   }
 
   return (
     <View style={[styles.avatar, { backgroundColor: color }]}>
       <Text style={styles.avatarInitials}>{initials}</Text>
+      {isIced && <Text style={styles.iceBadge}>🧊</Text>}
     </View>
   );
 }
@@ -92,6 +113,12 @@ interface Props {
   isGrouped: boolean;
   authorUsername: string;
   authorAvatarBlobId: string | null;
+  authorAvatarUri?: string | null;
+  authorIced?: boolean;
+  replyToPreview?: { username: string; text: string; isDeleted?: boolean } | null;
+  reactions?: Array<{ emoji: string; count: number; reactedByMe: boolean }>;
+  customEmojis?: Record<string, { blobId: string; mimeType: string; roomId: string | null }>;
+  onToggleReaction?: (emoji: string) => void;
   onReply?: () => void;
   onLongPress?: () => void;
 }
@@ -102,6 +129,12 @@ export function ChannelMessage({
   isGrouped,
   authorUsername,
   authorAvatarBlobId,
+  authorAvatarUri,
+  authorIced,
+  replyToPreview,
+  reactions = [],
+  customEmojis = {},
+  onToggleReaction,
   onReply,
   onLongPress,
 }: Props) {
@@ -133,6 +166,8 @@ export function ChannelMessage({
             authorKey={message.authorKey}
             username={authorUsername}
             avatarBlobId={authorAvatarBlobId}
+            avatarUri={authorAvatarUri}
+            isIced={authorIced}
           />
         )}
       </View>
@@ -150,9 +185,14 @@ export function ChannelMessage({
         )}
 
         {/* Reply bar */}
-        {message.replyTo && (
-          <View style={styles.replyBar}>
-            <Text style={styles.replyText}>↩ Reply</Text>
+        {message.replyTo && replyToPreview && (
+          <View style={styles.replyPreview}>
+            <View style={styles.replyPreviewInner}>
+              <Text style={styles.replyPreviewUser}>@{replyToPreview.username}</Text>
+              <Text style={styles.replyPreviewText} numberOfLines={2}>
+                {replyToPreview.isDeleted ? 'Message deleted' : replyToPreview.text}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -162,13 +202,30 @@ export function ChannelMessage({
           return (
             <>
               <View style={styles.textRow}>
-                <MessageText text={message.textContent} />
+                <MessageText text={message.textContent} customEmojis={customEmojis} />
                 {isGrouped && <Text style={styles.inlineTimestamp}>{timestamp}</Text>}
               </View>
               {urls.slice(0, 1).map(url => (
                 <LinkPreview key={url} url={url} />
               ))}
             </>
+          );
+        })()}
+
+        {message.contentType === 'email' && (() => {
+          let emailData: { from?: string; subject?: string; body_text?: string } = {};
+          try {
+            emailData = JSON.parse(message.textContent ?? '{}');
+          } catch {}
+          return (
+            <View style={emailStyles.card}>
+              <View style={emailStyles.header}>
+                <Mail size={14} color="#888" />
+                <Text style={emailStyles.from}>{emailData.from ?? 'Unknown sender'}</Text>
+              </View>
+              <Text style={emailStyles.subject}>{emailData.subject ?? '(no subject)'}</Text>
+              <Text style={emailStyles.preview} numberOfLines={2}>{emailData.body_text ?? ''}</Text>
+            </View>
           );
         })()}
 
@@ -189,6 +246,34 @@ export function ChannelMessage({
         )}
 
         {message.editedAt && <Text style={styles.edited}>(edited)</Text>}
+
+        {reactions.length > 0 && (
+          <View style={styles.reactionsRow}>
+            {reactions.map((r) => {
+              const custom = customEmojis[r.emoji];
+              return (
+                <TouchableOpacity
+                  key={`${message.messageId}-${r.emoji}`}
+                  style={[styles.reactionBadge, r.reactedByMe && styles.reactionBadgeActive]}
+                  onPress={() => onToggleReaction?.(r.emoji)}
+                  activeOpacity={0.8}
+                >
+                  {custom ? (
+                    <BlobImage
+                      blobHash={custom.blobId}
+                      mimeType={custom.mimeType}
+                      roomId={custom.roomId}
+                      style={styles.reactionEmojiImg}
+                    />
+                  ) : (
+                    <Text style={styles.reactionEmojiText}>{r.emoji}</Text>
+                  )}
+                  <Text style={styles.reactionCount}>{r.count}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </View>
 
       {/* Reply button */}
@@ -224,11 +309,25 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+  },
+  avatarWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    overflow: 'hidden',
+    position: 'relative',
   },
   avatarInitials: {
     color: '#fff',
     fontSize: 13,
     fontWeight: '700',
+  },
+  iceBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    fontSize: 12,
   },
 
   content: {
@@ -264,16 +363,42 @@ inlineTimestamp: {
     marginBottom: 2,
   },
 
-  replyBar: {
-    borderLeftWidth: 3,
-    borderLeftColor: '#555',
-    paddingLeft: 8,
-    marginBottom: 4,
+  replyPreview: {
+    marginBottom: 6,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: '#2a2a2a',
   },
-  replyText: { color: '#888', fontSize: 12 },
+  replyPreviewInner: {
+    backgroundColor: '#141414',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+  },
+  replyPreviewUser: { color: '#8ab4f8', fontSize: 12, fontWeight: '600' },
+  replyPreviewText: { color: '#bbb', fontSize: 12, marginTop: 2 },
 
   media: { width: '100%', minHeight: 160, borderRadius: 6, marginTop: 4 },
   edited: { color: '#555', fontSize: 11, fontStyle: 'italic', marginTop: 2 },
+
+  reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  reactionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#1b1b1b',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+  },
+  reactionBadgeActive: { borderColor: '#3b82f6' },
+  reactionEmojiText: { fontSize: 14 },
+  reactionEmojiImg: { width: 14, height: 14, borderRadius: 3 },
+  reactionCount: { color: '#bbb', fontSize: 12 },
 
   deletedText: { color: '#555', fontSize: 14, fontStyle: 'italic', flex: 1, paddingTop: 2 },
 
@@ -292,4 +417,12 @@ inlineTimestamp: {
   audioBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
   audioBtnText: { color: '#fff', fontSize: 20 },
   audioLabel: { color: '#aaa', fontSize: 13 },
+});
+
+const emailStyles = StyleSheet.create({
+  card: { backgroundColor: '#1a1a1a', borderRadius: 8, padding: 12, borderLeftWidth: 3, borderLeftColor: '#F2E58F' },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  from: { color: '#888', fontSize: 12 },
+  subject: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 4 },
+  preview: { color: '#666', fontSize: 13 },
 });

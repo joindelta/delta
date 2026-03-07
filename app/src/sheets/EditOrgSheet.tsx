@@ -49,15 +49,18 @@ export function EditOrgSheet(props: EditOrgSheetProps) {
 
     try {
       // Import dynamically to avoid issues
-      const { updateOrg } = await import('../ffi/deltaCore');
+      const { updateOrg } = await import('../ffi/gardensCore');
       await updateOrg(
         orgId!,
         name.trim(),
-        undefined,
-        description.trim() || undefined,
-        undefined,
-        undefined,
-        undefined
+        null,
+        description.trim() || null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
       );
       onSave?.();
       SheetManager.hide('edit-org-sheet');

@@ -77,9 +77,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.delta"
+    namespace "com.gardens"
     defaultConfig {
-        applicationId "com.delta"
+        applicationId "com.gardens"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -114,7 +114,7 @@ dependencies {
     // UniFFI Kotlin bindings on Android depend on JNA runtime
     implementation("net.java.dev.jna:jna:5.14.0@aar")
 
-    // Coroutines used by DeltaCoreModule for async bridging
+    // Coroutines used by GardensCoreModule for async bridging
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     // ExoPlayer extensions for additional video format support

@@ -41,7 +41,7 @@ import { useMessagesStore } from '../stores/useMessagesStore';
 import { useProfileStore } from '../stores/useProfileStore';
 import { MessageBubble } from '../components/MessageBubble';
 import { MessageComposer } from '../components/MessageComposer';
-import { listOrgMembers } from '../ffi/deltaCore';
+import { listOrgMembers } from '../ffi/gardensCore';
 
 const DRAWER_WIDTH = 280;
 const EDGE_HIT_WIDTH = 20;

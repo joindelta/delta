@@ -1,9 +1,11 @@
 import React from 'react';
-import { Text, Linking, StyleSheet } from 'react-native';
+import { Text, Linking, StyleSheet, View } from 'react-native';
+import { BlobImage } from './BlobImage';
+import { STANDARD_EMOJI_BY_CODE } from '../data/emoji';
 
 // Combined regex: URLs first, then @mentions, then #channels
 // URL regex uses greedy matching to capture full URLs
-const TOKEN_RE = /(https?:\/\/[^\s]+)(?=[.,!?)">\s]|$)|@(\w+)|#([\w-]+)/g;
+const TOKEN_RE = /(https?:\/\/[^\s]+)(?=[.,!?)">\s]|$)|@([\w+-]+)|#([\w+-]+)/g;
 
 type Segment =
   | { kind: 'text'; content: string }
@@ -46,16 +48,29 @@ export function extractUrls(text: string): string[] {
   return urls;
 }
 
+/** Extract all @mentions from a string (returns usernames without the @). */
+export function extractMentions(text: string): string[] {
+  const mentions: string[] = [];
+  TOKEN_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = TOKEN_RE.exec(text)) !== null) {
+    if (m[2]) mentions.push(m[2]);
+  }
+  return Array.from(new Set(mentions));
+}
+
 interface Props {
   text: string;
   baseStyle?: object;
+  customEmojis?: Record<string, { blobId: string; mimeType: string; roomId: string | null }>;
 }
 
-export function MessageText({ text, baseStyle }: Props) {
+export function MessageText({ text, baseStyle, customEmojis = {} }: Props) {
   const segments = parseSegments(text);
+  const emojiTokenRe = /(:[a-zA-Z0-9_+-]+:)/g;
   return (
-    <Text style={[styles.base, baseStyle]}>
-      {segments.map((seg, i) => {
+    <View style={[styles.base, baseStyle]}>
+      {segments.flatMap((seg, i) => {
         switch (seg.kind) {
           case 'url':
             return (
@@ -81,32 +96,72 @@ export function MessageText({ text, baseStyle }: Props) {
               </Text>
             );
           default:
-            return <Text key={i}>{seg.content}</Text>;
+            if (!seg.content) return null;
+            return seg.content.split(emojiTokenRe).map((part, j) => {
+              if (part.startsWith(':') && part.endsWith(':') && customEmojis[part]) {
+                const emoji = customEmojis[part];
+                return (
+                  <View key={`${i}-${j}`} style={styles.inlineEmoji}>
+                    <BlobImage
+                      blobHash={emoji.blobId}
+                      mimeType={emoji.mimeType}
+                      roomId={emoji.roomId}
+                      style={styles.inlineEmojiImg}
+                    />
+                  </View>
+                );
+              }
+              if (part.startsWith(':') && part.endsWith(':') && STANDARD_EMOJI_BY_CODE[part]) {
+                return (
+                  <Text key={`${i}-${j}`} style={styles.text}>
+                    {STANDARD_EMOJI_BY_CODE[part]}
+                  </Text>
+                );
+              }
+              return (
+                <Text key={`${i}-${j}`} style={styles.text}>
+                  {part}
+                </Text>
+              );
+            });
         }
       })}
-    </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  text: {
     color: '#dcddde',
     fontSize: 15,
     lineHeight: 21,
-    flexShrink: 1,
   },
   link: {
     color: '#00AFF4',
     textDecorationLine: 'underline',
+    fontSize: 15,
+    lineHeight: 21,
   },
   mention: {
     color: '#c9cdfb',
     backgroundColor: 'rgba(88, 101, 242, 0.25)',
     borderRadius: 3,
     fontWeight: '600',
+    fontSize: 15,
+    lineHeight: 21,
   },
   channel: {
     color: '#5865F2',
     fontWeight: '600',
+    fontSize: 15,
+    lineHeight: 21,
   },
+  inlineEmoji: { marginHorizontal: 2 },
+  inlineEmojiImg: { width: 18, height: 18, borderRadius: 4 },
 });

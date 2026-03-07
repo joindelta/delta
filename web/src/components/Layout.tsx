@@ -85,7 +85,10 @@ export function Layout({ children, title, description, ogType = 'website', appUr
         </div>
         
         <footer class="footer">
-          <p>Powered by <a href="https://delta.app">Delta</a> • Decentralized messaging</p>
+          <img src="/icon.png" alt="Gardens" style={{ width: 20, height: 20, verticalAlign: 'middle', marginRight: 4 }} />
+          <span>Powered by </span>
+          <a href="https://gardens.app">Gardens</a>
+          <span> • Decentralized messaging</span>
         </footer>
       </body>
     </html>

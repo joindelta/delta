@@ -1,4 +1,4 @@
-# Delta — Durable Object Sync + Onion Routing Design
+# Gardens — Durable Object Sync + Onion Routing Design
 
 **Date:** 2026-03-01
 **Status:** Approved
@@ -84,7 +84,7 @@ Lost on DO hibernation — clients reconnect automatically.
 
 ## WebSocket Protocol
 
-**Endpoint:** `GET wss://sync.delta.app/topic/<topic-hex>?since=<last_seq>`
+**Endpoint:** `GET wss://sync.gardens.app/topic/<topic-hex>?since=<last_seq>`
 
 ### Client → DO
 ```ts

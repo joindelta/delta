@@ -1,8 +1,8 @@
 /**
- * pkarr self-publishing for the Delta relay.
+ * pkarr self-publishing for the Gardens relay.
  *
  * Builds and parses relay TXT records in the format:
- *   v=delta1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>
+ *   v=gardens1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>
  *
  * Publishes to pkarr via HTTP relay (no DHT/sodium-native needed).
  */
@@ -17,10 +17,10 @@ const PKARR_RELAY = 'https://pkarr.pubky.org';
 /**
  * Build a relay TXT record string.
  *
- * Format: `v=delta1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>`
+ * Format: `v=gardens1;t=relay;n=<hop_url>;a=<ed25519_pubkey_hex>`
  */
 export function buildRelayTxtRecord(pubkeyHex: string, hopUrl: string): string {
-  return `v=delta1;t=relay;n=${hopUrl};a=${pubkeyHex}`;
+  return `v=gardens1;t=relay;n=${hopUrl};a=${pubkeyHex}`;
 }
 
 /**
@@ -30,7 +30,7 @@ export function buildRelayTxtRecord(pubkeyHex: string, hopUrl: string): string {
 export function parseRelayTxtRecord(
   txt: string,
 ): { pubkeyHex: string; hopUrl: string } | null {
-  if (!txt.startsWith('v=delta1')) return null;
+  if (!txt.startsWith('v=gardens1')) return null;
   const parts = txt.split(';');
   const fields: Record<string, string> = {};
   for (const part of parts) {
@@ -70,7 +70,7 @@ function encodeSigData(timestamp: number, packetBytes: Uint8Array): Uint8Array {
  * Sign and publish a relay self-record to pkarr via HTTP relay.
  *
  * @param seedHex  - 64 hex char Ed25519 seed for this relay's keypair
- * @param selfUrl  - Base URL of this Worker (e.g. https://relay.delta.app), without trailing slash
+ * @param selfUrl  - Base URL of this Worker (e.g. https://relay.gardens.app), without trailing slash
  */
 export async function publishRelaySelf(
   seedHex: string,
@@ -89,7 +89,7 @@ export async function publishRelaySelf(
     answers: [
       {
         type: 'TXT' as const,
-        name: '_delta-relay',
+        name: '_gardens-relay',
         ttl: 7200,
         data: [txtBytes],
       },

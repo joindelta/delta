@@ -4,18 +4,18 @@
  * Storage contract
  * ----------------
  * - Private key seed: stored in iOS Keychain / Android Keystore under the
- *   service key `delta.privateKey`, protected by biometric authentication.
- * - Public key + mnemonic: stored under `delta.publicKey` / `delta.mnemonic`
+ *   service key `gardens.privateKey`, protected by biometric authentication.
+ * - Public key + mnemonic: stored under `gardens.publicKey` / `gardens.mnemonic`
  *   without biometric guard (they are not secrets).
  */
 
 import { create } from 'zustand';
 import * as Keychain from 'react-native-keychain';
-import { generateKeypair, importFromMnemonic, initCore, initNetwork, type KeyPair } from '../ffi/deltaCore';
+import { generateKeypair, importFromMnemonic, initCore, initNetwork, type KeyPair } from '../ffi/gardensCore';
 
-const KEYCHAIN_SERVICE = 'delta.privateKey';
-const PUBKEY_SERVICE   = 'delta.publicKey';
-const MNEMONIC_SERVICE = 'delta.mnemonic';
+const KEYCHAIN_SERVICE = 'gardens.privateKey';
+const PUBKEY_SERVICE   = 'gardens.publicKey';
+const MNEMONIC_SERVICE = 'gardens.mnemonic';
 
 interface AuthState {
   keypair: KeyPair | null;
@@ -77,7 +77,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const result = await Keychain.getGenericPassword({
         service: KEYCHAIN_SERVICE,
         authenticationPrompt: {
-          title: 'Unlock Delta',
+          title: 'Unlock Gardens',
           subtitle: 'Confirm your identity to continue',
         },
       });

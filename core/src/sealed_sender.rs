@@ -77,7 +77,7 @@ pub fn seal(
     let shared = ephemeral_secret.diffie_hellman(&recipient_x25519);
 
     // Derive AEAD key
-    let aead_key = derive_aead_key(shared.as_bytes(), ephemeral_public.as_bytes(), b"delta:sealed-sender:v1");
+    let aead_key = derive_aead_key(shared.as_bytes(), ephemeral_public.as_bytes(), b"gardens:sealed-sender:v1");
 
     // Plaintext: sender_pk || op_bytes
     let mut plaintext = Vec::with_capacity(32 + op_bytes.len());
@@ -123,7 +123,7 @@ pub fn open(
     let ephemeral_public   = X25519Public::from(epk_bytes);
     let recipient_x25519   = ed25519_seed_to_x25519(recipient_seed_bytes);
     let shared             = recipient_x25519.diffie_hellman(&ephemeral_public);
-    let aead_key           = derive_aead_key(shared.as_bytes(), &epk_bytes, b"delta:sealed-sender:v1");
+    let aead_key           = derive_aead_key(shared.as_bytes(), &epk_bytes, b"gardens:sealed-sender:v1");
 
     // Decrypt
     let cipher = XChaCha20Poly1305::new_from_slice(&aead_key).map_err(|_| SealedSenderError::Decrypt)?;

@@ -1,4 +1,4 @@
-# Delta — Phase 3 Networking Design
+# Gardens — Phase 3 Networking Design
 **Date:** 2026-02-21
 **Status:** Approved
 
@@ -6,20 +6,20 @@
 
 ## Overview
 
-Phase 3 adds p2panda-net to core, giving Delta real-time gossip delivery and offline-resilient LogSync catch-up. p2panda is used as an offline-first backhaul — the app is always network-enabled when a connection is available, and LogSync handles catch-up automatically on reconnect.
+Phase 3 adds p2panda-net to core, giving Gardens real-time gossip delivery and offline-resilient LogSync catch-up. p2panda is used as an offline-first backhaul — the app is always network-enabled when a connection is available, and LogSync handles catch-up automatically on reconnect.
 
 ---
 
 ## Architecture
 
-A new `NetworkCore` singleton is added to `core` alongside the existing `DeltaCore`. Both are initialized inside `bootstrap()` — React Native only calls `init_core()` once.
+A new `NetworkCore` singleton is added to `core` alongside the existing `GardensCore`. Both are initialized inside `bootstrap()` — React Native only calls `init_core()` once.
 
 ```
 core/src/
   network.rs     ← new: NetworkCore singleton, init_network(), topic helpers
   store.rs       ← existing: bootstrap() extended to call init_network()
   ops.rs         ← existing: publish() extended to gossip after writing to store
-  projector.rs   ← existing: unchanged (LogSync feeds DeltaStore, projector polls it)
+  projector.rs   ← existing: unchanged (LogSync feeds GardensStore, projector polls it)
 ```
 
 ### Data Flow
@@ -27,18 +27,18 @@ core/src/
 ```
 [WRITE PATH — local op]
 ops::publish()
-  → insert into DeltaStore (p2panda-store)
+  → insert into GardensStore (p2panda-store)
   → fire-and-forget: gossip_handle.publish(op_bytes)
 
 [WRITE PATH — remote op via LogSync]
-LogSync syncs remote author logs → DeltaStore
+LogSync syncs remote author logs → GardensStore
   → projector 500ms poll picks up new ops automatically
 
 [READ PATH — unchanged]
 Projector → decode CBOR → upsert read model → UniFFI queries
 ```
 
-LogSync writes into the same `DeltaStore` the projector already polls. Remote ops arrive for free with no projector changes.
+LogSync writes into the same `GardensStore` the projector already polls. Remote ops arrive for free with no projector changes.
 
 ---
 
@@ -47,12 +47,12 @@ LogSync writes into the same `DeltaStore` the projector already polls. Remote op
 Three topic scopes, each a deterministic 32-byte `Hash` all parties derive independently:
 
 ```
-Org meta topic:  TopicId = Hash(b"delta:org:"  + org_id_bytes)
-Room topic:      TopicId = Hash(b"delta:room:" + room_id_bytes)
-DM topic:        TopicId = Hash(b"delta:dm:"   + sort(key_a, key_b))
+Org meta topic:  TopicId = Hash(b"gardens:org:"  + org_id_bytes)
+Room topic:      TopicId = Hash(b"gardens:room:" + room_id_bytes)
+DM topic:        TopicId = Hash(b"gardens:dm:"   + sort(key_a, key_b))
 ```
 
-The `"delta:"` prefix namespaces topics away from other p2panda apps on the same network.
+The `"gardens:"` prefix namespaces topics away from other p2panda apps on the same network.
 
 ### TopicMap (LogSync)
 
@@ -87,7 +87,7 @@ pub struct NetworkCore {
     pub address_book: AddressBook,
     pub endpoint: Endpoint,
     pub gossip: Gossip,
-    pub sync: LogSync<DeltaStore, String, ()>,
+    pub sync: LogSync<GardensStore, String, ()>,
     pub sync_handles: Mutex<HashMap<[u8; 32], SyncHandle>>,
     pub gossip_handles: Mutex<HashMap<[u8; 32], GossipHandle>>,
 }
@@ -97,12 +97,12 @@ static NETWORK: OnceLock<NetworkCore> = OnceLock::new();
 
 ### Bootstrap Node Config
 
-Passed in from React Native via `init_core()`. RN holds a `BOOTSTRAP_NODES` constant in `ffi/deltaCore.ts` — keeps the Rust layer config-agnostic and allows bootstrap node updates without a native rebuild.
+Passed in from React Native via `init_core()`. RN holds a `BOOTSTRAP_NODES` constant in `ffi/gardensCore.ts` — keeps the Rust layer config-agnostic and allows bootstrap node updates without a native rebuild.
 
 ```rust
 pub struct BootstrapNode {
     pub node_id_hex: String,   // Ed25519 pubkey hex
-    pub relay_url: String,     // e.g. "https://relay.delta.app"
+    pub relay_url: String,     // e.g. "https://relay.gardens.app"
 }
 ```
 
@@ -119,7 +119,7 @@ p2panda-net's confidential topic discovery (Private Set Intersection) is repurpo
 When `create_org(is_public: true)`, subscribe to a discovery topic derived from the org name:
 
 ```
-Discovery topic: TopicId = Hash(b"delta:discover:" + lowercase_normalized_name)
+Discovery topic: TopicId = Hash(b"gardens:discover:" + lowercase_normalized_name)
 ```
 
 Any node subscribed to the same discovery topic is findable by searchers. The actual `org_id` and `OrgSummary` are gossiped to connecting peers — Discovery only handles the rendezvous.
@@ -179,7 +179,7 @@ FlatList of OrgSummary cards
 
 ### Updated call sites
 
-- `init_core()` in `ffi/deltaCore.ts` passes `BOOTSTRAP_NODES` constant
+- `init_core()` in `ffi/gardensCore.ts` passes `BOOTSTRAP_NODES` constant
 - `useOrgsStore.createRoom()` calls `subscribe_room_topic(room_id)` after success
 - `useDMStore.createThread()` calls `subscribe_dm_topic(thread_id)` after success
 
@@ -192,12 +192,12 @@ FlatList of OrgSummary cards
 - `core/src/store.rs` — `bootstrap()` calls `init_network()`
 - `core/src/ops.rs` — `publish()` gossips after store insert
 - `core/src/lib.rs` — new UniFFI functions + `BootstrapNode` dict + `ConnectionStatus` enum
-- `core/src/delta_core.udl` — new functions + types
+- `core/src/gardens_core.udl` — new functions + types
 
 ### React Native
 - `app/src/stores/useNetworkStore.ts` — new
 - `app/src/components/ConnectionBadge.tsx` — new
 - `app/src/screens/DiscoverOrgsScreen.tsx` — new
-- `app/src/ffi/deltaCore.ts` — updated signatures + `BOOTSTRAP_NODES`
+- `app/src/ffi/gardensCore.ts` — updated signatures + `BOOTSTRAP_NODES`
 - `app/src/stores/useOrgsStore.ts` — calls `subscribe_room_topic`
 - `app/src/stores/useDMStore.ts` — calls `subscribe_dm_topic`

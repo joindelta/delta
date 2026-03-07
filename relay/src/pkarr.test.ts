@@ -5,10 +5,10 @@ describe('buildRelayTxtRecord', () => {
   it('produces the correct format', () => {
     const record = buildRelayTxtRecord(
       'aabbcc00'.repeat(8),         // 64-char pubkey hex
-      'https://relay.delta.app/hop',
+      'https://relay.gardens.app/hop',
     );
     expect(record).toBe(
-      'v=delta1;t=relay;n=https://relay.delta.app/hop;a=aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00',
+      'v=gardens1;t=relay;n=https://relay.gardens.app/hop;a=aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00',
     );
   });
 });
@@ -16,13 +16,13 @@ describe('buildRelayTxtRecord', () => {
 describe('parseRelayTxtRecord', () => {
   it('round-trips', () => {
     const pubkeyHex = 'aabbcc00'.repeat(8);
-    const hopUrl    = 'https://relay.delta.app/hop';
+    const hopUrl    = 'https://relay.gardens.app/hop';
     const record    = buildRelayTxtRecord(pubkeyHex, hopUrl);
     const parsed    = parseRelayTxtRecord(record);
     expect(parsed).toEqual({ pubkeyHex, hopUrl });
   });
 
   it('returns null for non-relay records', () => {
-    expect(parseRelayTxtRecord('v=delta1;t=user;u=alice')).toBeNull();
+    expect(parseRelayTxtRecord('v=gardens1;t=user;u=alice')).toBeNull();
   });
 });

@@ -6,6 +6,9 @@
 
 use std::sync::OnceLock;
 
+use hex;
+use z32;
+
 struct Inner {
     hops: Vec<(String, String)>, // (pubkey_hex, next_url)
     sync_url: String,
@@ -33,6 +36,14 @@ pub fn set(hops: Vec<(String, String)>, sync_url: String) {
 /// Return the stored relay hops as (pubkey_hex, next_url) pairs.
 pub fn get_hops() -> Vec<(String, String)> {
     lock().read().expect("sync config lock poisoned").hops.clone()
+}
+
+/// Return the z32-encoded pubkey of the first relay hop, or None if not configured.
+pub fn get_relay_z32() -> Option<String> {
+    let hops = lock().read().expect("sync config lock poisoned").hops.clone();
+    let (pubkey_hex, _) = hops.into_iter().next()?;
+    let bytes = hex::decode(&pubkey_hex).ok()?;
+    Some(z32::encode(&bytes))
 }
 
 /// Return the stored sync WebSocket URL, or an empty string if not yet set.

@@ -3,6 +3,7 @@ import {
   createOrg as dcCreateOrg,
   listMyOrgs as dcListMyOrgs,
   updateOrg as dcUpdateOrg,
+  deleteOrg as dcDeleteOrg,
   listRooms as dcListRooms,
   createRoom as dcCreateRoom,
   updateRoom as dcUpdateRoom,
@@ -19,6 +20,7 @@ import { broadcastOp } from './useSyncStore';
 interface OrgsState {
   orgs: OrgSummary[];
   rooms: Record<string, Room[]>; // orgId → rooms
+  deletedOrgIds: string[];
 
   fetchMyOrgs(): Promise<void>;
   createOrg(
@@ -40,6 +42,7 @@ interface OrgsState {
     isPublic?: boolean | null,
     emailEnabled?: boolean | null,
   ): Promise<void>;
+  deleteOrg(orgId: string): Promise<void>;
   fetchRooms(orgId: string, includeArchived?: boolean): Promise<void>;
   createRoom(orgId: string, name: string): Promise<string>;
   updateRoom(orgId: string, roomId: string, name?: string, roomCooldownSecs?: number): Promise<void>;
@@ -51,10 +54,12 @@ interface OrgsState {
 export const useOrgsStore = create<OrgsState>((set, get) => ({
   orgs: [],
   rooms: {},
+  deletedOrgIds: [],
 
   async fetchMyOrgs() {
     const orgs = await dcListMyOrgs();
-    set({ orgs });
+    const hidden = new Set(get().deletedOrgIds);
+    set({ orgs: orgs.filter(o => !hidden.has(o.orgId)) });
   },
 
   async createOrg(name, typeLabel, description, isPublic) {
@@ -96,6 +101,18 @@ export const useOrgsStore = create<OrgsState>((set, get) => ({
     broadcastOp(orgId, result.opBytes);
     await get().fetchMyOrgs();
     await get().fetchRooms(orgId);
+  },
+
+  async deleteOrg(orgId: string) {
+    await dcDeleteOrg(orgId);
+    set(s => {
+      const { [orgId]: _removed, ...restRooms } = s.rooms;
+      return {
+        orgs: s.orgs.filter(o => o.orgId !== orgId),
+        rooms: restRooms,
+        deletedOrgIds: s.deletedOrgIds.includes(orgId) ? s.deletedOrgIds : [...s.deletedOrgIds, orgId],
+      };
+    });
   },
 
   async fetchRooms(orgId, includeArchived = false) {

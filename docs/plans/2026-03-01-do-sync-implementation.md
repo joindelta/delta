@@ -17,10 +17,10 @@ Rename `destination_node_id` → `topic_id` and `message` → `op` in the onion 
 **Files:**
 - Modify: `core/src/onion.rs`
 - Modify: `core/src/lib.rs`
-- Modify: `core/src/delta_core.udl`
+- Modify: `core/src/gardens_core.udl`
 - Modify: `relay/src/onion.ts`
 - Modify: `relay/src/onion.test.ts`
-- Modify: `app/src/ffi/deltaCore.ts`
+- Modify: `app/src/ffi/gardensCore.ts`
 - Modify: `app/src/utils/onionRoute.ts`
 
 ### Step 1: Update `core/src/onion.rs`
@@ -107,7 +107,7 @@ pub fn build_onion_packet(
     // ... rest unchanged, replace node_id with tid, message with op
 ```
 
-### Step 4: Update `core/src/delta_core.udl`
+### Step 4: Update `core/src/gardens_core.udl`
 
 Find `OnionPeeled` dictionary and update:
 ```udl
@@ -153,7 +153,7 @@ Update `buildTestPacket` — the `deliver` branch:
 ```ts
 } else {
   const topicId = randomBytes(32);
-  const op = new TextEncoder().encode('hello delta');
+  const op = new TextEncoder().encode('hello gardens');
   plaintext = new Uint8Array(1 + 32 + op.length);
   plaintext[0] = 0x02;
   plaintext.set(topicId, 1);
@@ -187,7 +187,7 @@ cd relay && npx vitest run
 
 Expected: all 10 tests pass.
 
-### Step 8: Update `app/src/ffi/deltaCore.ts`
+### Step 8: Update `app/src/ffi/gardensCore.ts`
 
 Update `OnionPeeled` interface:
 ```ts
@@ -281,9 +281,9 @@ Expected: no errors.
 ### Step 12: Commit
 
 ```bash
-git add core/src/onion.rs core/src/lib.rs core/src/delta_core.udl \
+git add core/src/onion.rs core/src/lib.rs core/src/gardens_core.udl \
         relay/src/onion.ts relay/src/onion.test.ts \
-        app/src/ffi/deltaCore.ts app/src/utils/onionRoute.ts
+        app/src/ffi/gardensCore.ts app/src/utils/onionRoute.ts
 git commit -m "feat(onion): rename Deliver payload fields topic_id+op (was destination_node_id+message)"
 ```
 
@@ -414,7 +414,7 @@ Expected: FAIL — `Cannot find module './topic-do'`
 Create `sync/package.json`:
 ```json
 {
-  "name": "@delta/sync-worker",
+  "name": "@gardens/sync-worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -452,7 +452,7 @@ Create `sync/tsconfig.json`:
 
 Create `sync/wrangler.toml`:
 ```toml
-name = "delta-sync"
+name = "gardens-sync"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
@@ -599,7 +599,7 @@ function base64ToBytes(b64: string): Uint8Array {
 
 ```ts
 /**
- * Delta Sync Worker
+ * Gardens Sync Worker
  *
  * Endpoints:
  *   GET  /topic/<topic-hex>?since=<seq>  — WebSocket upgrade to TopicDO
@@ -704,7 +704,7 @@ Add service binding after the existing config:
 ```toml
 [[services]]
 binding = "SYNC"
-service = "delta-sync"
+service = "gardens-sync"
 ```
 
 Remove the comment about `IROH_BRIDGE_URL` — it's no longer a secret.
@@ -717,7 +717,7 @@ Add `SYNC` binding and remove `IROH_BRIDGE_URL`:
 export interface Env {
   RELAY_SEED_HEX: string;
   SELF_URL?: string;
-  SYNC: Fetcher;   // service binding to delta-sync Worker
+  SYNC: Fetcher;   // service binding to gardens-sync Worker
 }
 ```
 
@@ -772,7 +772,7 @@ Add a simple `sync.rs` module to the core that handles incoming ops from the DO 
 - Create: `core/src/sync.rs`
 - Modify: `core/src/db.rs`
 - Modify: `core/src/lib.rs`
-- Modify: `core/src/delta_core.udl`
+- Modify: `core/src/gardens_core.udl`
 
 ### Step 1: Write failing tests for sync.rs
 
@@ -848,7 +848,7 @@ pub async fn set_topic_seq(pool: &SqlitePool, topic_hex: &str, seq: i64) -> Resu
 //!
 //! React Native manages the WebSocket connection. When an op arrives,
 //! RN calls `ingest_op(topic_hex, seq, op_bytes)` which inserts it into
-//! the DeltaStore. The projector picks it up within 500ms.
+//! the GardensStore. The projector picks it up within 500ms.
 
 use crate::ops::{decode_cbor, GossipEnvelope};
 use crate::store::get_core;
@@ -972,7 +972,7 @@ pub fn get_topic_seq_ffi(topic_hex: String) -> Result<i64, SyncFfiError> {
 }
 ```
 
-### Step 7: Update `core/src/delta_core.udl`
+### Step 7: Update `core/src/gardens_core.udl`
 
 Add after the `OnionError` section:
 
@@ -982,7 +982,7 @@ Add after the `OnionError` section:
 [Error]
 enum SyncFfiError { "Error" };
 
-namespace delta_core {
+namespace gardens_core {
     // ... existing functions ...
 
     [Throws=SyncFfiError]
@@ -993,7 +993,7 @@ namespace delta_core {
 };
 ```
 
-Note: add these two functions inside the existing `namespace delta_core { }` block, don't create a new one.
+Note: add these two functions inside the existing `namespace gardens_core { }` block, don't create a new one.
 
 ### Step 8: Build to verify
 
@@ -1006,7 +1006,7 @@ Expected: no errors.
 ### Step 9: Commit
 
 ```bash
-git add core/src/sync.rs core/src/db.rs core/src/lib.rs core/src/delta_core.udl
+git add core/src/sync.rs core/src/db.rs core/src/lib.rs core/src/gardens_core.udl
 git commit -m "feat(sync): ingest_op + get_topic_seq FFI for WebSocket-driven op ingestion"
 ```
 
@@ -1119,7 +1119,7 @@ Expected: all tests pass.
 ### Step 9: Commit
 
 ```bash
-git add core/Cargo.toml core/src/lib.rs core/src/store.rs core/src/ops.rs core/src/delta_core.udl
+git add core/Cargo.toml core/src/lib.rs core/src/store.rs core/src/ops.rs core/src/gardens_core.udl
 git rm core/src/network.rs
 git commit -m "feat(core): remove p2panda-net/iroh, send path now via onion routing from RN layer"
 ```
@@ -1131,9 +1131,9 @@ git commit -m "feat(core): remove p2panda-net/iroh, send path now via onion rout
 Reflect the UDL changes (removed bootstrap/subscribe FFI, added sync FFI) in the TypeScript bridge.
 
 **Files:**
-- Modify: `app/src/ffi/deltaCore.ts`
+- Modify: `app/src/ffi/gardensCore.ts`
 
-### Step 1: Update `NativeInterface` in `deltaCore.ts`
+### Step 1: Update `NativeInterface` in `gardensCore.ts`
 
 Remove:
 ```ts
@@ -1149,20 +1149,20 @@ ingestOpFfi(topicHex: string, seq: number, opBytesBase64: string): Promise<void>
 getTopicSeqFfi(topicHex: string): Promise<number>;
 ```
 
-### Step 2: Update the stub (test fallback) in `deltaCore.ts`
+### Step 2: Update the stub (test fallback) in `gardensCore.ts`
 
 Find the stub object (the one with `async buildOnionPacket() { throw ... }`) and update:
 
 Remove stub entries for `initCore`, `subscribeRoomTopic`, `subscribeDmTopic`.
 Add:
 ```ts
-async ingestOpFfi() { throw new Error('delta_core not loaded'); },
-async getTopicSeqFfi() { throw new Error('delta_core not loaded'); },
+async ingestOpFfi() { throw new Error('gardens_core not loaded'); },
+async getTopicSeqFfi() { throw new Error('gardens_core not loaded'); },
 ```
 
 Update `initCore` stub:
 ```ts
-async initCore(_privateKeyHex: string, _dbDir: string) { throw new Error('delta_core not loaded'); },
+async initCore(_privateKeyHex: string, _dbDir: string) { throw new Error('gardens_core not loaded'); },
 ```
 
 ### Step 3: Update `initCore` wrapper function
@@ -1182,7 +1182,7 @@ Remove `BOOTSTRAP_NODES` constant and `BootstrapNode` interface — no longer ne
 
 ### Step 4: Add sync wrapper functions
 
-Add at the bottom of `deltaCore.ts`:
+Add at the bottom of `gardensCore.ts`:
 
 ```ts
 // ── Sync ──────────────────────────────────────────────────────────────────────
@@ -1227,7 +1227,7 @@ Expected: no errors.
 ### Step 7: Commit
 
 ```bash
-git add app/src/ffi/deltaCore.ts
+git add app/src/ffi/gardensCore.ts
 git commit -m "feat(app): update FFI bindings — remove bootstrap/subscribe, add ingestOp/getTopicSeq"
 ```
 
@@ -1252,9 +1252,9 @@ Manages one WebSocket connection per subscribed topic. Receives ops from DO, cal
  */
 
 import { create } from 'zustand';
-import { ingestOp, getTopicSeq } from '../ffi/deltaCore';
+import { ingestOp, getTopicSeq } from '../ffi/gardensCore';
 
-const SYNC_URL = 'wss://delta-sync.workers.dev'; // override via env/config
+const SYNC_URL = 'wss://gardens-sync.workers.dev'; // override via env/config
 
 interface TopicState {
   ws: WebSocket | null;
@@ -1387,7 +1387,7 @@ Open `app/src/screens/OrgChatScreen.tsx`. Find the `useEffect` that initializes 
 
 ```ts
 import { useSyncStore } from '../stores/useSyncStore';
-import { topicIdForRoom } from '../ffi/deltaCore'; // you'll add this below
+import { topicIdForRoom } from '../ffi/gardensCore'; // you'll add this below
 
 // Inside the component:
 const subscribe = useSyncStore(s => s.subscribe);
@@ -1401,23 +1401,23 @@ useEffect(() => {
 }, [roomId]);
 ```
 
-Add `topicHexForRoom` helper in `deltaCore.ts` (derives the topic hex the same way Rust does):
+Add `topicHexForRoom` helper in `gardensCore.ts` (derives the topic hex the same way Rust does):
 
 ```ts
 import { createHash } from 'react-native-sha256'; // or use @noble/hashes
 
 export function topicHexForRoom(roomId: string): string {
-  // Matches: Hash(b"delta:room:" + room_id_bytes)
+  // Matches: Hash(b"gardens:room:" + room_id_bytes)
   // Use @noble/hashes since it's already in the dep tree
   const { sha256 } = require('@noble/hashes/sha256');
-  const input = new TextEncoder().encode('delta:room:' + roomId);
+  const input = new TextEncoder().encode('gardens:room:' + roomId);
   const hash = sha256(input);
   return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export function topicHexForDm(keyA: string, keyB: string): string {
   const [lo, hi] = keyA <= keyB ? [keyA, keyB] : [keyB, keyA];
-  const input = new TextEncoder().encode(`delta:dm:${lo}:${hi}`);
+  const input = new TextEncoder().encode(`gardens:dm:${lo}:${hi}`);
   const { sha256 } = require('@noble/hashes/sha256');
   const hash = sha256(input);
   return Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1441,7 +1441,7 @@ Expected: no errors.
 ### Step 5: Commit
 
 ```bash
-git add app/src/stores/useSyncStore.ts app/src/screens/OrgChatScreen.tsx app/src/ffi/deltaCore.ts
+git add app/src/stores/useSyncStore.ts app/src/screens/OrgChatScreen.tsx app/src/ffi/gardensCore.ts
 git commit -m "feat(app): useSyncStore WebSocket manager + topic subscription on chat screens"
 ```
 
@@ -1472,7 +1472,7 @@ await sendOnionMessage(hops, destNodeIdHex, messageBytes);
 
 After:
 ```ts
-import { topicHexForRoom } from '../ffi/deltaCore';
+import { topicHexForRoom } from '../ffi/gardensCore';
 
 // Derive topic bytes from the room/DM context
 const topicHex = topicHexForRoom(roomId); // or topicHexForDm(...)

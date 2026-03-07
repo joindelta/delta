@@ -29,7 +29,7 @@ Discord and Signal work.
    - Settings sheet expands to show a **Public Identity Card**:
      - Their pkarr URL (`pk:yj4bqhvahk8dge...`) — tap to copy
      - Truncated public key hex — tap to copy full key
-     - QR code of the pkarr URL (scannable by any Delta app)
+     - QR code of the pkarr URL (scannable by any Gardens app)
      - **DNS Configuration** expandable section (see below)
 3. On toggle OFF: publish an empty/tombstone record. DHT entry expires after
    ~2 hrs naturally. No active revocation.
@@ -40,7 +40,7 @@ Same flow inside **Server Settings → General → Visibility** toggle. Admins s
 the same Public Identity Card. Non-admins never see the toggle.
 
 A **"Share Community"** button appears when public, generating a shareable
-deep link: `delta://pk:yj4bqhvahk8dge...`
+deep link: `gardens://pk:yj4bqhvahk8dge...`
 
 ### Discover Communities (link/QR invite)
 
@@ -64,10 +64,10 @@ To use a custom domain (optional)
 ──────────────────────────────────
 Add one TXT record to your DNS:
 
-  Host:   _delta
+  Host:   _gardens
   Value:  pk:yj4bqhvahk8dge7r3s9q...
 
-Delta-enabled apps can then resolve you
+Gardens-enabled apps can then resolve you
 at yourdomain.com
 ```
 
@@ -75,16 +75,16 @@ at yourdomain.com
 
 ## pkarr Record Format
 
-DNS TXT records published under `_delta` label.
+DNS TXT records published under `_gardens` label.
 
 **User profile:**
 ```
-_delta TXT "v=delta1;t=user;u=alice;b=Hello world;a=<avatar_blob_id>"
+_gardens TXT "v=gardens1;t=user;u=alice;b=Hello world;a=<avatar_blob_id>"
 ```
 
 **Org profile:**
 ```
-_delta TXT "v=delta1;t=org;n=Rustaceans;d=A community for Rust devs;a=<avatar_blob_id>"
+_gardens TXT "v=gardens1;t=org;n=Rustaceans;d=A community for Rust devs;a=<avatar_blob_id>"
 ```
 
 Fields kept intentionally small to stay well within the ~1 KB DNS packet limit.
@@ -139,7 +139,7 @@ New component `src/components/PublicIdentityCard.tsx`:
 
 - Replace "Visibility" `SettingsRow` stub with a real `Switch` + label row.
 - Below the switch (when ON): render `<PublicIdentityCard />`.
-- Call `deltaCore.createOrUpdateProfile({ ..., isPublic: true/false })` on
+- Call `gardensCore.createOrUpdateProfile({ ..., isPublic: true/false })` on
   toggle.
 - Fetch current profile on mount to initialise switch state.
 
@@ -148,13 +148,13 @@ New component `src/components/PublicIdentityCard.tsx`:
 - Replace "Visibility" `SettingsRow` stub with `Switch` + label row.
 - Below switch (when ON): render `<PublicIdentityCard />` + **"Share Community"**
   button that opens the system share sheet with the deep link.
-- Call `deltaCore.updateOrg({ orgId, isPublic: true/false })` on toggle.
+- Call `gardensCore.updateOrg({ orgId, isPublic: true/false })` on toggle.
 
 ### Step 8 — React Native: deep link handler + Community Preview Sheet
 
-- Register deep link scheme `delta://pk:<z32>` in app config.
+- Register deep link scheme `gardens://pk:<z32>` in app config.
 - New `src/sheets/CommunityPreviewSheet.tsx`:
-  - On open: call `deltaCore.resolvePkarrOrg(z32Key)` which calls
+  - On open: call `gardensCore.resolvePkarrOrg(z32Key)` which calls
     `pkarr::Client::resolve()` in Rust and returns `{ name, description, publicKey }`.
   - Shows org name, description, public key, QR.
   - "Request to Join" button (wires into existing membership ops).

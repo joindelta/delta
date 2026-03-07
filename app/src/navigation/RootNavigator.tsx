@@ -18,7 +18,6 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import { Settings, Plus } from 'lucide-react-native';
-
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProfileStore } from '../stores/useProfileStore';
 
@@ -28,6 +27,7 @@ import { SeedRecoveryScreen } from '../screens/SeedRecoveryScreen';
 import { DiscoverOrgsScreen } from '../screens/DiscoverOrgsScreen';
 import { InviteScreen } from '../screens/InviteScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+import { InboxScreen } from '../screens/InboxScreen';
 import { OrgChatScreen } from '../screens/OrgChatScreen';
 import { OrgSettingsScreen } from '../screens/OrgSettingsScreen';
 import { UserSettingsScreen } from '../screens/UserSettingsScreen';
@@ -35,6 +35,9 @@ import { DMChatScreen } from '../screens/DMChatScreen';
 import { MemberListScreen } from '../screens/MemberListScreen';
 import { AddMemberScreen } from '../screens/AddMemberScreen';
 import { DebugConnectionPanel } from '../components/DebugConnectionPanel';
+
+// Import the Gardens logo for the FAB
+// const gardensLogo = require('../../assets/gardens-logo.png');
 
 // ─── Param lists ──────────────────────────────────────────────────────────────
 
@@ -46,6 +49,7 @@ export type AuthStackParamList = {
 
 export type MainStackParamList = {
   Home: undefined;
+  Inbox: undefined;
   DiscoverOrgs: undefined;
   Invite: { orgId: string; orgName: string };
   OrgChat: { orgId: string; orgName: string };
@@ -147,7 +151,7 @@ function MainNavigator() {
           name="Home"
           component={HomeScreen}
           options={() => ({
-            title: 'Delta',
+            title: 'Gardens',
             headerLeft: () => (
               <HeaderAvatar
                 profilePicUri={profilePicUri}
@@ -159,6 +163,11 @@ function MainNavigator() {
           })}
         />
 
+        <MainStack.Screen
+          name="Inbox"
+          component={InboxScreen}
+          options={{ title: 'Inbox', headerShown: true }}
+        />
         <MainStack.Screen
           name="DiscoverOrgs"
           component={DiscoverOrgsScreen}
@@ -221,7 +230,7 @@ function MainNavigator() {
       {currentScreen === 'Home' && (
         <View pointerEvents="box-none" style={fabStyles.container}>
           <TouchableOpacity style={fabStyles.fab} onPress={() => SheetManager.show('fab-sheet')}>
-            <Plus size={22} color="#000" />
+            <Plus size={24} color="#000" />
           </TouchableOpacity>
         </View>
       )}
@@ -241,7 +250,7 @@ const navStyles = StyleSheet.create({
 
 const fabStyles = StyleSheet.create({
   container: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, justifyContent: 'flex-end', alignItems: 'center', padding: 20 },
-  fab: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  fab: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#F2E58F', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
 });
 
 // ─── Root ─────────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@
 
 **Goal:** Add p2panda-net to core — real-time gossip delivery and LogSync catch-up — with a three-tier topic scheme (org-meta / room / DM) and a React Native connection indicator + public org discovery screen.
 
-**Architecture:** A `NetworkCore` singleton (separate from `DeltaCore`) owns all p2panda-net handles. It is initialized automatically inside `bootstrap()` alongside the existing store setup. `ops::publish()` fire-and-forgets to gossip after writing to the store; incoming remote ops from LogSync flow into the same `DeltaStore` the projector already polls.
+**Architecture:** A `NetworkCore` singleton (separate from `GardensCore`) owns all p2panda-net handles. It is initialized automatically inside `bootstrap()` alongside the existing store setup. `ops::publish()` fire-and-forgets to gossip after writing to the store; incoming remote ops from LogSync flow into the same `GardensStore` the projector already polls.
 
 **Tech Stack:** p2panda-net 0.5.1, p2panda-core 0.5, p2panda-store 0.5 (SqliteStore), tokio, Zustand (RN), React Navigation.
 
@@ -15,12 +15,12 @@
 ## Task 1: Add new types to UDL and lib.rs
 
 **Files:**
-- Modify: `core/src/delta_core.udl`
+- Modify: `core/src/gardens_core.udl`
 - Modify: `core/src/lib.rs`
 
 **Step 1: Add `BootstrapNode` dict and `ConnectionStatus` enum to UDL**
 
-In `delta_core.udl`, add below the existing `DmThread` dictionary:
+In `gardens_core.udl`, add below the existing `DmThread` dictionary:
 
 ```
 enum ConnectionStatus {
@@ -144,7 +144,7 @@ Expected: errors about missing `network::*` functions (fine — network.rs is st
 **Step 8: Commit**
 
 ```bash
-git add core/src/delta_core.udl core/src/lib.rs
+git add core/src/gardens_core.udl core/src/lib.rs
 git commit -m "feat(phase3): add BootstrapNode, ConnectionStatus types and UniFFI stubs"
 ```
 
@@ -169,10 +169,10 @@ use p2panda_core::Hash;
 // ─── Topic derivation ─────────────────────────────────────────────────────────
 
 /// Namespaced prefix prevents collision with other p2panda apps.
-const ORG_PREFIX:       &[u8] = b"delta:org:";
-const ROOM_PREFIX:      &[u8] = b"delta:room:";
-const DM_PREFIX:        &[u8] = b"delta:dm:";
-const DISCOVER_PREFIX:  &[u8] = b"delta:discover:";
+const ORG_PREFIX:       &[u8] = b"gardens:org:";
+const ROOM_PREFIX:      &[u8] = b"gardens:room:";
+const DM_PREFIX:        &[u8] = b"gardens:dm:";
+const DISCOVER_PREFIX:  &[u8] = b"gardens:discover:";
 
 pub fn topic_id_for_org(org_id: &str) -> [u8; 32] {
     topic_hash(&[ORG_PREFIX, org_id.as_bytes()])
@@ -367,7 +367,7 @@ git commit -m "feat(phase3): wire bootstrap_nodes through bootstrap() to init_ne
 
 ---
 
-## Task 4: DeltaTopicMap — dynamic topic-to-log mapping
+## Task 4: GardensTopicMap — dynamic topic-to-log mapping
 
 **Files:**
 - Modify: `core/src/network.rs`
@@ -380,7 +380,7 @@ git commit -m "feat(phase3): wire bootstrap_nodes through bootstrap() to init_ne
 > ```
 > Search for `p2panda_sync::TopicMap` or `p2panda_net::sync::TopicMap`. The trait likely has one method: `async fn get(&self, topic: &TopicId) -> Option<Logs<L>>` or a synchronous equivalent. Adjust the impl below if the signature differs.
 
-**Step 1: Add `DeltaTopicMap` to network.rs**
+**Step 1: Add `GardensTopicMap` to network.rs**
 
 After the `topic_hash` helper, insert:
 
@@ -398,11 +398,11 @@ pub type LogEntry = (PublicKey, String);
 
 /// Thread-safe, runtime-mutable mapping from TopicId bytes → log entries.
 #[derive(Clone, Default)]
-pub struct DeltaTopicMap {
+pub struct GardensTopicMap {
     inner: Arc<RwLock<HashMap<[u8; 32], Vec<LogEntry>>>>,
 }
 
-impl DeltaTopicMap {
+impl GardensTopicMap {
     pub fn new() -> Self {
         Self::default()
     }
@@ -425,7 +425,7 @@ impl DeltaTopicMap {
 
 // Implement the TopicMap trait required by LogSync.
 // Adjust generic parameters and method signature to match the actual trait.
-impl TopicMap<[u8; 32], Logs<String>> for DeltaTopicMap {
+impl TopicMap<[u8; 32], Logs<String>> for GardensTopicMap {
     async fn get(&self, topic: &[u8; 32]) -> Option<Logs<String>> {
         let map = self.inner.read().await;
         map.get(topic).map(|entries| {
@@ -449,7 +449,7 @@ If the `TopicMap` / `Logs` import path is wrong, fix the `use` statement based o
 
 ```bash
 git add core/src/network.rs
-git commit -m "feat(phase3): DeltaTopicMap — runtime-mutable TopicId → logs mapping"
+git commit -m "feat(phase3): GardensTopicMap — runtime-mutable TopicId → logs mapping"
 ```
 
 ---
@@ -488,7 +488,7 @@ use tokio::sync::Mutex;
 pub struct NetworkCore {
     pub gossip: Gossip,
     pub sync: LogSync,
-    pub topic_map: DeltaTopicMap,
+    pub topic_map: GardensTopicMap,
     /// Gossip handles keyed by topic bytes — for publish().
     pub gossip_handles: Mutex<HashMap<[u8; 32], p2panda_net::GossipHandle>>,
     /// Sync handles keyed by topic bytes.
@@ -582,7 +582,7 @@ pub async fn init_network(
         .await
         .map_err(|e| NetworkError(e.to_string()))?;
 
-    let topic_map = DeltaTopicMap::new();
+    let topic_map = GardensTopicMap::new();
 
     // Give LogSync its own handle to the op store (SqlitePool is Arc-backed, Clone is cheap).
     let sync_store = {
@@ -1071,10 +1071,10 @@ git commit -m "fix(phase3): resolve any remaining cargo check warnings"
 
 ---
 
-## Task 10: Update ffi/deltaCore.ts
+## Task 10: Update ffi/gardensCore.ts
 
 **Files:**
-- Modify: `app/src/ffi/deltaCore.ts`
+- Modify: `app/src/ffi/gardensCore.ts`
 
 **Step 1: Add new TypeScript types**
 
@@ -1090,22 +1090,22 @@ export type ConnectionStatus = 'Online' | 'Connecting' | 'Offline';
 
 export const BOOTSTRAP_NODES: BootstrapNode[] = [
   // Hardcoded for launch — update relay_url when bootstrap node is deployed.
-  // { nodeIdHex: '<64-hex-char-ed25519-pubkey>', relayUrl: 'https://relay.delta.app' },
+  // { nodeIdHex: '<64-hex-char-ed25519-pubkey>', relayUrl: 'https://relay.gardens.app' },
 ];
 ```
 
-**Step 2: Extend the `DeltaCoreNative` interface**
+**Step 2: Extend the `GardensCoreNative` interface**
 
 Replace the existing interface block:
 ```typescript
-interface DeltaCoreNative {
+interface GardensCoreNative {
   generateKeypair(): KeyPair;
   importFromMnemonic(words: string[]): KeyPair;
 }
 ```
 With:
 ```typescript
-interface DeltaCoreNative {
+interface GardensCoreNative {
   // Phase 1
   generateKeypair(): KeyPair;
   importFromMnemonic(words: string[]): KeyPair;
@@ -1239,13 +1239,13 @@ export async function searchPublicOrgs(query: string): Promise<OrgSummary[]> {
 ```bash
 cd app && npx tsc --noEmit 2>&1 | head -30
 ```
-Expected: no errors from deltaCore.ts.
+Expected: no errors from gardensCore.ts.
 
 **Step 6: Commit**
 
 ```bash
-git add app/src/ffi/deltaCore.ts
-git commit -m "feat(phase3): update ffi/deltaCore.ts with Phase 3 types and functions"
+git add app/src/ffi/gardensCore.ts
+git commit -m "feat(phase3): update ffi/gardensCore.ts with Phase 3 types and functions"
 ```
 
 ---
@@ -1259,7 +1259,7 @@ git commit -m "feat(phase3): update ffi/deltaCore.ts with Phase 3 types and func
 
 ```typescript
 import { create } from 'zustand';
-import type { ConnectionStatus } from '../ffi/deltaCore';
+import type { ConnectionStatus } from '../ffi/gardensCore';
 
 interface NetworkState {
   status: ConnectionStatus;
@@ -1271,7 +1271,7 @@ let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getNative(): any {
-  try { return require('delta_core'); } catch { return null; }
+  try { return require('gardens_core'); } catch { return null; }
 }
 
 export const useNetworkStore = create<NetworkState>((set) => ({
@@ -1327,10 +1327,10 @@ git commit -m "feat(phase3): useNetworkStore — polls get_connection_status eve
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useNetworkStore } from '../stores/useNetworkStore';
-import type { ConnectionStatus } from '../ffi/deltaCore';
+import type { ConnectionStatus } from '../ffi/gardensCore';
 
 const COLORS: Record<ConnectionStatus, string> = {
-  Online:     '#22c55e', // green-500
+  Online:     '#F2E58F', // green-500
   Connecting: '#f59e0b', // amber-500
   Offline:    '#6b7280', // gray-500
 };
@@ -1398,7 +1398,7 @@ In `useOrgsStore.ts`, replace:
 ```typescript
   async createRoom(orgId, name) {
     const native = getNative();
-    if (!native) throw new Error('delta_core not loaded');
+    if (!native) throw new Error('gardens_core not loaded');
     const roomId: string = await native.createRoom(orgId, name);
     await get().fetchRooms(orgId);
     return roomId;
@@ -1408,7 +1408,7 @@ With:
 ```typescript
   async createRoom(orgId, name) {
     const native = getNative();
-    if (!native) throw new Error('delta_core not loaded');
+    if (!native) throw new Error('gardens_core not loaded');
     const roomId: string = await native.createRoom(orgId, name);
     await get().fetchRooms(orgId);
     // Subscribe to the new room's p2panda-net topic.
@@ -1423,7 +1423,7 @@ In `useDMStore.ts`, replace:
 ```typescript
   async createThread(recipientKey: string) {
     const native = getNative();
-    if (!native) throw new Error('delta_core not loaded');
+    if (!native) throw new Error('gardens_core not loaded');
     const threadId: string = await native.createDmThread(recipientKey);
     await get().fetchThreads();
     return threadId;
@@ -1433,7 +1433,7 @@ With:
 ```typescript
   async createThread(recipientKey: string) {
     const native = getNative();
-    if (!native) throw new Error('delta_core not loaded');
+    if (!native) throw new Error('gardens_core not loaded');
     const threadId: string = await native.createDmThread(recipientKey);
     await get().fetchThreads();
     // Subscribe to the new DM thread's p2panda-net topic.
@@ -1477,11 +1477,11 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
-import type { OrgSummary } from '../ffi/deltaCore';
+import type { OrgSummary } from '../ffi/gardensCore';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getNative(): any {
-  try { return require('delta_core'); } catch { return null; }
+  try { return require('gardens_core'); } catch { return null; }
 }
 
 export function DiscoverOrgsScreen() {

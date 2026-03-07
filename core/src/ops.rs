@@ -12,7 +12,7 @@ use p2panda_store::{LogStore, OperationStore};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::store::DeltaStore;
+use crate::store::GardensStore;
 
 // ─── Error ───────────────────────────────────────────────────────────────────
 
@@ -39,6 +39,8 @@ pub mod log_ids {
     pub const MESSAGE: &str = "message";
     pub const REACTION: &str = "reaction";
     pub const DM_THREAD: &str = "dm_thread";
+    pub const EVENT: &str = "event";
+    pub const EVENT_RSVP: &str = "event_rsvp";
 
     // Phase 4 encryption
     pub const KEY_BUNDLE: &str = "key_bundle";
@@ -49,7 +51,7 @@ pub mod log_ids {
     pub const MEMBERSHIP: &str = "membership";
 
     pub const ALL: &[&str] = &[
-        PROFILE, ORG, ROOM, MESSAGE, REACTION, DM_THREAD,
+        PROFILE, ORG, ROOM, MESSAGE, REACTION, DM_THREAD, EVENT, EVENT_RSVP,
         KEY_BUNDLE, ENC_CTRL, ENC_DIRECT, MEMBERSHIP,
     ];
 }
@@ -77,6 +79,8 @@ pub struct OrgOp {
     pub description: Option<String>,
     pub avatar_blob_id: Option<String>,
     pub cover_blob_id: Option<String>,
+    pub welcome_text: Option<String>,
+    pub custom_emoji_json: Option<String>,
     pub is_public: bool,
 }
 
@@ -89,6 +93,9 @@ pub struct OrgUpdateOp {
     pub description: Option<String>,
     pub avatar_blob_id: Option<String>,
     pub cover_blob_id: Option<String>,
+    pub welcome_text: Option<String>,
+    pub custom_emoji_json: Option<String>,
+    pub org_cooldown_secs: Option<i64>,
     pub is_public: Option<bool>,
 }
 
@@ -98,6 +105,7 @@ pub struct RoomUpdateOp {
     pub room_id: String,
     pub org_id: String,
     pub name: Option<String>,
+    pub room_cooldown_secs: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -113,6 +121,47 @@ pub struct RoomDeleteOp {
     pub op_type: String, // "delete_room" | "archive_room"
     pub room_id: String, // hex of the room's operation hash
     pub org_id: String,  // hex of the org's root operation hash
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EventOp {
+    pub op_type: String, // "create_event"
+    pub org_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub location_type: String, // "room" | "somewhere_else"
+    pub location_text: Option<String>,
+    pub location_room_id: Option<String>,
+    pub start_at: i64,
+    pub end_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EventUpdateOp {
+    pub op_type: String, // "update_event"
+    pub event_id: String,
+    pub org_id: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub location_type: Option<String>,
+    pub location_text: Option<String>,
+    pub location_room_id: Option<String>,
+    pub start_at: Option<i64>,
+    pub end_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EventDeleteOp {
+    pub op_type: String, // "delete_event"
+    pub event_id: String,
+    pub org_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EventRsvpOp {
+    pub op_type: String, // "set_event_rsvp" | "clear_event_rsvp"
+    pub event_id: String,
+    pub status: Option<String>, // "interested"
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -168,6 +217,8 @@ pub struct MembershipOp {
     pub org_id: String,       // organization ID
     pub member_key: String,   // hex public key of the member
     pub access_level: Option<String>, // "pull" | "read" | "write" | "manage" (for add/change)
+    pub cooldown_secs: Option<i64>,
+    pub iced_until: Option<i64>,
 }
 
 // ─── Gossip wire format ───────────────────────────────────────────────────────
@@ -203,7 +254,7 @@ pub fn decode_cbor<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, OpsE
 /// `network::gossip_dm_sealed`.  The caller decides how and where to gossip;
 /// this function does NOT fire any network traffic.
 pub async fn sign_and_store_op(
-    store: &mut DeltaStore,
+    store: &mut GardensStore,
     private_key: &PrivateKey,
     log_id: &str,
     body_bytes: Vec<u8>,
@@ -266,7 +317,7 @@ pub async fn sign_and_store_op(
 ///
 /// Returns `(op_hash, gossip_bytes)` — same contract as [`sign_and_store_op`].
 pub async fn publish<T: Serialize>(
-    store: &mut DeltaStore,
+    store: &mut GardensStore,
     private_key: &PrivateKey,
     log_id: &str,
     payload: &T,

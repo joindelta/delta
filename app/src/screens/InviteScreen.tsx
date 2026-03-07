@@ -12,7 +12,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import QRCode from 'react-native-qrcode-svg';
 import NfcManager, { NfcTech, Ndef } from 'react-native-nfc-manager';
-import { generateInviteToken } from '../ffi/deltaCore';
+import { generateInviteToken } from '../ffi/gardensCore';
 
 type Props = NativeStackScreenProps<any, 'Invite'>;
 
@@ -61,7 +61,7 @@ export function InviteScreen({ route }: Props) {
     if (!token) return;
     try {
       await Share.share({
-        message: `Join ${orgName} on Delta!\n\nInvite code: ${token}\n\nAccess level: ${accessLevel}\nExpires in ${expiryHours} hours`,
+        message: `Join ${orgName} on Gardens!\n\nInvite code: ${token}\n\nAccess level: ${accessLevel}\nExpires in ${expiryHours} hours`,
         title: `Join ${orgName}`,
       });
     } catch (err: any) {
@@ -75,7 +75,7 @@ export function InviteScreen({ route }: Props) {
     try {
       await NfcManager.requestTechnology(NfcTech.Ndef);
       
-      const payload = `delta-invite:${token}`;
+      const payload = `gardens-invite:${token}`;
       const bytes = Ndef.encodeMessage([Ndef.textRecord(payload)]);
       
       if (bytes) {

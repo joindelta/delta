@@ -1,4 +1,4 @@
-//! P2Panda SqliteStore initialisation and the `DeltaCore` global singleton.
+//! P2Panda SqliteStore initialisation and the `GardensCore` global singleton.
 //!
 //! The UniFFI `init_core()` function is the sole entry point called from
 //! React Native after the biometric unlock provides the private key.
@@ -41,7 +41,7 @@ use tokio::sync::Mutex;
 // ─── Type alias ──────────────────────────────────────────────────────────────
 
 /// p2panda-store instance parameterised with String log IDs and no extensions.
-pub type DeltaStore = SqliteStore<String, ()>;
+pub type GardensStore = SqliteStore<String, ()>;
 
 // ─── Error ───────────────────────────────────────────────────────────────────
 
@@ -59,27 +59,27 @@ pub enum StoreError {
 
 // ─── Global singleton ────────────────────────────────────────────────────────
 
-pub struct DeltaCore {
+pub struct GardensCore {
     pub private_key: PrivateKey,
     pub public_key_hex: String,
     /// Mutable because OperationStore methods take `&mut self`.
-    pub op_store: Mutex<DeltaStore>,
+    pub op_store: Mutex<GardensStore>,
     pub read_pool: SqlitePool,
     pub blob_store: std::path::PathBuf,
     /// Database directory path for network initialization
     pub db_path: String,
 }
 
-static CORE: OnceLock<DeltaCore> = OnceLock::new();
+static CORE: OnceLock<GardensCore> = OnceLock::new();
 
-pub fn get_core() -> Option<&'static DeltaCore> {
+pub fn get_core() -> Option<&'static GardensCore> {
     CORE.get()
 }
 
 // ─── Initialisation ──────────────────────────────────────────────────────────
 
 /// Initialise the p2panda operation store at `{db_dir}/ops.db`.
-pub async fn init_op_store(db_dir: &str) -> Result<DeltaStore, StoreError> {
+pub async fn init_op_store(db_dir: &str) -> Result<GardensStore, StoreError> {
     let url = format!("sqlite://{db_dir}/ops.db");
     create_database(&url)
         .await
@@ -136,7 +136,7 @@ pub async fn bootstrap(
     std::fs::create_dir_all(&blob_path)
         .map_err(|e| StoreError::Init(format!("Failed to create blob directory: {}", e)))?;
 
-    let core = DeltaCore {
+    let core = GardensCore {
         private_key,
         public_key_hex,
         op_store: Mutex::new(op_store),

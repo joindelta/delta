@@ -13,6 +13,8 @@ import { useOrgsStore } from '../stores/useOrgsStore';
 import { useDMStore } from '../stores/useDMStore';
 import { useProfileStore } from '../stores/useProfileStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useInboxStore } from '../stores/useInboxStore';
+import { BlobImage } from '../components/BlobImage';
 
 interface Props {
   navigation: NavigationProp<any>;
@@ -46,8 +48,9 @@ type ListItem =
 export function HomeScreen({ navigation }: Props) {
   const { orgs, fetchMyOrgs } = useOrgsStore();
   const { threads, fetchThreads } = useDMStore();
-  const { myProfile } = useProfileStore();
+  const { myProfile, profileCache, fetchProfile } = useProfileStore();
   const { keypair } = useAuthStore();
+  const { unreadCount } = useInboxStore();
   const [loading, setLoading] = useState(true);
 
   const myKey = myProfile?.publicKey ?? keypair?.publicKeyHex ?? '';
@@ -56,6 +59,14 @@ export function HomeScreen({ navigation }: Props) {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!myKey || threads.length === 0) return;
+    for (const t of threads) {
+      const recipientKey = t.initiatorKey === myKey ? t.recipientKey : t.initiatorKey;
+      fetchProfile(recipientKey);
+    }
+  }, [threads, myKey, fetchProfile]);
 
   async function loadData() {
     setLoading(true);
@@ -98,22 +109,26 @@ export function HomeScreen({ navigation }: Props) {
 
   function renderItem({ item }: { item: ListItem }) {
     if (item.kind === 'dm') {
-      const initials = item.recipientKey.slice(0, 2).toUpperCase();
+      const profile = profileCache[item.recipientKey];
+      const displayName = profile?.username ?? item.recipientKey.slice(0, 12) + '…';
+      const initials = (profile?.username ?? item.recipientKey).slice(0, 2).toUpperCase();
       const color = avatarColor(item.recipientKey);
-      // Show a shortened key as the name until we resolve usernames
-      const name = item.recipientKey.slice(0, 12) + '…';
       return (
         <TouchableOpacity
           style={styles.row}
           activeOpacity={0.7}
           onPress={() => navigation.navigate('DMChat', { threadId: item.threadId, recipientKey: item.recipientKey })}
         >
-          <View style={[styles.avatar, { backgroundColor: color }]}>
-            <Text style={styles.avatarText}>{initials}</Text>
-          </View>
+          {profile?.avatarBlobId ? (
+            <BlobImage blobHash={profile.avatarBlobId} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: color }]}>
+              <Text style={styles.avatarText}>{initials}</Text>
+            </View>
+          )}
           <View style={styles.rowBody}>
             <View style={styles.rowTop}>
-              <Text style={styles.name} numberOfLines={1}>{name}</Text>
+              <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
               <Text style={styles.time}>{formatTime(item.lastMessageAt)}</Text>
             </View>
             <Text style={styles.sub} numberOfLines={1}>
@@ -127,15 +142,20 @@ export function HomeScreen({ navigation }: Props) {
     // org
     const initials = item.name.slice(0, 2).toUpperCase();
     const color = avatarColor(item.name);
+    const org = orgs.find(o => o.orgId === item.orgId);
     return (
       <TouchableOpacity
         style={styles.row}
         activeOpacity={0.7}
         onPress={() => navigation.navigate('OrgChat', { orgId: item.orgId, orgName: item.name })}
       >
-        <View style={[styles.avatar, { backgroundColor: color }]}>
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
+        {org?.avatarBlobId ? (
+          <BlobImage blobHash={org.avatarBlobId} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, { backgroundColor: color }]}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </View>
+        )}
         <View style={styles.rowBody}>
           <View style={styles.rowTop}>
             <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
@@ -153,6 +173,23 @@ export function HomeScreen({ navigation }: Props) {
       data={items}
       keyExtractor={item => item.kind === 'dm' ? item.threadId : item.orgId}
       renderItem={renderItem}
+      ListHeaderComponent={
+        <TouchableOpacity
+          style={styles.inboxRow}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('Inbox')}
+        >
+          <View style={styles.inboxLeft}>
+            <Text style={styles.inboxLabel}>Inbox</Text>
+            <Text style={styles.inboxSub}>Email messages</Text>
+          </View>
+          {unreadCount > 0 && (
+            <View style={styles.inboxBadge}>
+              <Text style={styles.inboxBadgeText}>{unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      }
       ListEmptyComponent={
         <View style={styles.empty}>
           <Text style={styles.emptyText}>No conversations yet</Text>
@@ -193,4 +230,28 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 120 },
   emptyText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   emptySub: { color: '#555', fontSize: 14, marginTop: 6 },
+
+  inboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#1a1a1a',
+    backgroundColor: '#0c0c0c',
+  },
+  inboxLeft: { flex: 1 },
+  inboxLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  inboxSub: { color: '#666', fontSize: 12, marginTop: 2 },
+  inboxBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F2E58F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  inboxBadgeText: { color: '#000', fontSize: 12, fontWeight: '700' },
 });

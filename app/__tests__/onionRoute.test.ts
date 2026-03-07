@@ -9,7 +9,7 @@ describe('parseRelayRecord', () => {
   it('extracts hop URL and pubkey from a relay PkarrResolved', () => {
     const record = {
       recordType: 'relay',
-      name: 'https://relay.delta.app/hop',
+      name: 'https://relay.gardens.app/hop',
       avatarBlobId: 'ab'.repeat(32),
       username: null,
       description: null,
@@ -20,7 +20,7 @@ describe('parseRelayRecord', () => {
     const hop = parseRelayRecord(record);
     expect(hop).toEqual({
       pubkeyHex: 'ab'.repeat(32),
-      nextUrl: 'https://relay.delta.app/hop',
+      nextUrl: 'https://relay.gardens.app/hop',
     });
   });
 

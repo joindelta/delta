@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { resolvePkarr } from '../ffi/deltaCore';
+import { resolvePkarr } from '../ffi/gardensCore';
 import { BlobImage } from '../components/BlobImage';
 import { DefaultCoverShader } from '../components/DefaultCoverShader';
 

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useNetworkStore } from '../stores/useNetworkStore';
-import type { ConnectionStatus } from '../ffi/deltaCore';
+import type { ConnectionStatus } from '../ffi/gardensCore';
 
 const COLORS: Record<ConnectionStatus, string> = {
   Online:     '#22c55e',
@@ -32,7 +32,7 @@ export function ConnectionBadge() {
       ) : (
         <View style={[styles.dot, { backgroundColor: color }]} />
       )}
-      <Text style={[styles.label, { color }]}>{LABELS[status]}</Text>
+      <Text style={styles.label}>{LABELS[status]}</Text>
     </View>
   );
 }
@@ -40,5 +40,5 @@ export function ConnectionBadge() {
 const styles = StyleSheet.create({
   row:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 },
   dot:   { width: 8, height: 8, borderRadius: 4, marginRight: 4 },
-  label: { fontSize: 12, fontWeight: '500' },
+  label: { fontSize: 12, fontWeight: '500', color: '#e5e7eb' },
 });

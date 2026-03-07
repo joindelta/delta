@@ -144,7 +144,7 @@ export function PublicIdentityCard({ pkarrUrl, publicKeyHex, label, onShare }: P
           <View style={s.dnsRecord}>
             <View style={s.dnsRow}>
               <Text style={s.dnsLabel}>Host:</Text>
-              <Text style={s.dnsValue}>_delta</Text>
+              <Text style={s.dnsValue}>_gardens</Text>
             </View>
             <View style={s.dnsRow}>
               <Text style={s.dnsLabel}>Value:</Text>
@@ -156,7 +156,7 @@ export function PublicIdentityCard({ pkarrUrl, publicKeyHex, label, onShare }: P
 
           <TouchableOpacity
             style={s.copyDnsBtn}
-            onPress={() => handleCopy(`Host: _delta\nValue: ${pkarrUrl}`, 'dns')}
+            onPress={() => handleCopy(`Host: _gardens\nValue: ${pkarrUrl}`, 'dns')}
           >
             <Text style={s.copyDnsText}>
               {copied === 'dns' ? 'Copied!' : 'Copy Record'}
@@ -164,7 +164,7 @@ export function PublicIdentityCard({ pkarrUrl, publicKeyHex, label, onShare }: P
           </TouchableOpacity>
 
           <Text style={s.dnsHelp}>
-            Delta-enabled apps can then resolve you at yourdomain.com
+            Gardens-enabled apps can then resolve you at yourdomain.com
           </Text>
         </View>
       )}

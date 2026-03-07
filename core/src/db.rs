@@ -46,7 +46,8 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
             available_for   TEXT,
             is_public       INTEGER NOT NULL DEFAULT 0,
             created_at      INTEGER NOT NULL,
-            updated_at      INTEGER NOT NULL
+            updated_at      INTEGER NOT NULL,
+            email_enabled   INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS key_bundles (

@@ -7,14 +7,12 @@ import {
   ScrollView,
   Modal,
 } from 'react-native';
-import { useNetworkStore } from '../stores/useNetworkStore';
 import { useAuthStore } from '../stores/useAuthStore';
-import { getConnectionStatus, getMyProfile, getNodeId, initNetwork, isNetworkInitialized } from '../ffi/deltaCore';
-import type { ConnectionStatus } from '../ffi/deltaCore';
+import { getConnectionStatus, getMyProfile, getNodeId, initNetwork, isNetworkInitialized } from '../ffi/gardensCore';
+import type { ConnectionStatus } from '../ffi/gardensCore';
 
 export function DebugConnectionPanel() {
   const [visible, setVisible] = useState(false);
-  const { status } = useNetworkStore();
   const { keypair } = useAuthStore();
 
   const [coreStatus, setCoreStatus] = useState<ConnectionStatus>('Offline');
@@ -23,6 +21,24 @@ export function DebugConnectionPanel() {
   const [profile, setProfile] = useState<{ publicKey: string; username: string } | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [initError, setInitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const statusResult = await getConnectionStatus();
+        if (active) setCoreStatus(statusResult);
+      } catch {
+        if (active) setCoreStatus('Offline');
+      }
+    }
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -76,8 +92,8 @@ export function DebugConnectionPanel() {
     <>
       <TouchableOpacity onPress={() => setVisible(true)}>
         <View style={badgeStyles.badge}>
-          <View style={[badgeStyles.dot, { backgroundColor: getStatusColor(status) }]} />
-          <Text style={[badgeStyles.text, { color: getStatusColor(status) }]}>{status}</Text>
+          <View style={[badgeStyles.dot, { backgroundColor: getStatusColor(coreStatus) }]} />
+          <Text style={badgeStyles.text}>{coreStatus}</Text>
         </View>
       </TouchableOpacity>
 
@@ -121,10 +137,6 @@ export function DebugConnectionPanel() {
               {/* Status Summary */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Status Summary</Text>
-                <View style={styles.row}>
-                  <Text style={styles.label}>UI Status:</Text>
-                  <Text style={[styles.value, { color: getStatusColor(status) }]}>{status}</Text>
-                </View>
                 <View style={styles.row}>
                   <Text style={styles.label}>Core Status:</Text>
                   <Text style={[styles.value, { color: getStatusColor(coreStatus) }]}>{coreStatus}</Text>
@@ -198,6 +210,7 @@ const badgeStyles = StyleSheet.create({
   text: {
     fontSize: 12,
     fontWeight: '500',
+    color: '#e5e7eb',
   },
 });
 
@@ -244,7 +257,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(34, 197, 94, 0.3)',
   },
   initBtn: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#F2E58F',
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 10,

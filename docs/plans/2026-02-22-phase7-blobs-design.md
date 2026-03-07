@@ -19,13 +19,13 @@ we never have to revisit this.
 - `enc_group_state` table — `save/load_enc_group_state` helpers exist in `db.rs`
 - `enc_key_manager` / `enc_key_registry` tables and helpers exist
 - `KEY_BUNDLE`, `ENC_CTRL`, `ENC_DIRECT` log IDs defined in `ops.rs`
-- `DeltaGroupState` / `DeltaMsgGroupState` type aliases defined
-- All DGM types (`DeltaDgm`, `DeltaOrdering`, etc.) implemented and tested
+- `GardensGroupState` / `GardensMsgGroupState` type aliases defined
+- All DGM types (`GardensDgm`, `GardensOrdering`, etc.) implemented and tested
 - `EncryptionCore` singleton initialised in `init_encryption()`
 - `key_bundles` table exists in schema
 - `MessageBubble` has placeholder renderers for image / audio / gif / video
 - `MessageComposer` has a "+" attach stub button
-- `deltaCore.ts` bridge exists with all prior phases wired
+- `gardensCore.ts` bridge exists with all prior phases wired
 
 ### What is missing
 
@@ -127,10 +127,10 @@ Implementation steps:
 1. Get `EncryptionCore`; clone `km_state` and `kr_state` from their Mutexes
 2. Build `my_id = Id(enc.my_public_key)`
 3. Build `all_ids: Vec<Id>` from `initial_members`
-4. `DeltaDgm::create(my_id, &all_ids)` → `dgm_state`
-5. `DeltaOrdering::init(enc.my_public_key)` → `ord_state`
+4. `GardensDgm::create(my_id, &all_ids)` → `dgm_state`
+5. `GardensOrdering::init(enc.my_public_key)` → `ord_state`
 6. `GroupState::init(my_id, km_state, kr_state, dgm_state, ord_state)` → `y`
-7. `GroupState::create(y, all_ids, &rng)` → `(new_state, ctrl_msg: DeltaMessage)`
+7. `GroupState::create(y, all_ids, &rng)` → `(new_state, ctrl_msg: GardensMessage)`
 8. CBOR-serialize `new_state`; `db::save_enc_group_state(pool, room_id, "room", &bytes)`
 9. Persist updated `km_state` and `kr_state` from `new_state.dcgka`
 10. CBOR-serialize `ctrl_msg` → `ctrl_bytes`
@@ -148,25 +148,25 @@ pub struct EncryptedBody {
     pub secret_id: GroupSecretId,  // [u8; 32]
     pub nonce:     [u8; 24],
     pub ciphertext: Vec<u8>,
-    pub sender_key: [u8; 32],      // ADD: needed to reconstruct DeltaMessage on decrypt
+    pub sender_key: [u8; 32],      // ADD: needed to reconstruct GardensMessage on decrypt
 }
 ```
 
 ### `encrypt_for_room(room_id, plaintext)`
-1. Load CBOR group state from `enc_group_state` → deserialize as `DeltaGroupState`
-2. `GroupState::send(state, plaintext, &rng)` → `(new_state, msg: DeltaMessage)`
+1. Load CBOR group state from `enc_group_state` → deserialize as `GardensGroupState`
+2. `GroupState::send(state, plaintext, &rng)` → `(new_state, msg: GardensMessage)`
 3. Match `msg.content` as `Application { group_secret_id, nonce, ciphertext }`
 4. Save `new_state` CBOR back to DB
 5. Return `EncryptedBody { secret_id: group_secret_id, nonce: nonce.into(), ciphertext, sender_key: enc.my_public_key.into() }`
 
 ### `decrypt_for_room(room_id, body)`
-1. Load CBOR group state → `DeltaGroupState`
+1. Load CBOR group state → `GardensGroupState`
 2. Reconstruct:
    ```rust
-   let msg = DeltaMessage {
+   let msg = GardensMessage {
        id: OpId(Hash::new(&body.ciphertext)),
        sender: Id(PublicKey::from_bytes(&body.sender_key)?),
-       content: DeltaMessageContent::Application {
+       content: GardensMessageContent::Application {
            group_secret_id: body.secret_id,
            nonce: XAeadNonce::from(body.nonce),
            ciphertext: body.ciphertext,
@@ -233,9 +233,9 @@ bytes get_blob(string blob_hash);
 
 ---
 
-## Part F — TypeScript Bridge (`deltaCore.ts`)
+## Part F — TypeScript Bridge (`gardensCore.ts`)
 
-Add to `DeltaCoreNative` interface:
+Add to `GardensCoreNative` interface:
 ```ts
 uploadBlob(data: Uint8Array, mimeType: string, roomId: string | null): Promise<string>;
 getBlob(blobHash: string): Promise<Uint8Array>;
@@ -299,7 +299,7 @@ onSendGif: (embedUrl: string) => void;
 |---|---|
 | Full DCGKA `GroupState` (not `SecretBundle` shortcut) | Already implemented; gives real forward secrecy and key rotation on member removal |
 | Pre-key bundle in `ProfileOp` (not separate log) | Simplest delivery mechanism; `KEY_BUNDLE` log available for future rotation ops |
-| `sender_key` stored in `blob_meta` | Needed to reconstruct `DeltaMessage::Application` for `GroupState::receive` |
+| `sender_key` stored in `blob_meta` | Needed to reconstruct `GardensMessage::Application` for `GroupState::receive` |
 | `react-native-image-picker` + `expo-av` | Minimal surface area; works in bare RN; widely adopted |
 | Tenor for GIF search | Free tier sufficient for launch; API key is a placeholder |
 | `data:` URI for `BlobImage` | No temp file management; works on both iOS and Android |

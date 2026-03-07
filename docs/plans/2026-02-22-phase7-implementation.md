@@ -4,7 +4,7 @@
 
 **Goal:** Complete Phase 7 — wire pre-key bundle publishing, full DCGKA `GroupState` room encryption, and blob upload/download with encryption, plus the React Native media components.
 
-**Architecture:** Pre-key bundles are published in `ProfileOp` and registered in `KeyRegistryState` by the projector. `init_room_group` creates a per-room `DeltaGroupState` (persisted CBOR in `enc_group_state`). `upload_blob` encrypts via `GroupState::send`; `get_blob` decrypts via `GroupState::receive`. React Native gets `BlobImage`, a wired `MessageComposer`, and a `GifSearchModal`.
+**Architecture:** Pre-key bundles are published in `ProfileOp` and registered in `KeyRegistryState` by the projector. `init_room_group` creates a per-room `GardensGroupState` (persisted CBOR in `enc_group_state`). `upload_blob` encrypts via `GroupState::send`; `get_blob` decrypts via `GroupState::receive`. React Native gets `BlobImage`, a wired `MessageComposer`, and a `GifSearchModal`.
 
 **Tech Stack:** Rust / p2panda-encryption 0.5.1 (data_scheme `GroupState`, `KeyManager`, `KeyRegistry`), UniFFI, React Native, react-native-image-picker, expo-av, Tenor API
 
@@ -363,9 +363,9 @@ async fn init_room_group_creates_group_state() {
     let privkey = p2panda_core::PrivateKey::new();
     init_encryption(privkey.to_hex(), pool.clone()).await.unwrap();
 
-    // Simulate DeltaCore being set so init_room_group can access read_pool.
+    // Simulate GardensCore being set so init_room_group can access read_pool.
     // Use a dummy store bootstrap.
-    // (If DeltaCore isn't set, init_room_group returns NotInitialised.)
+    // (If GardensCore isn't set, init_room_group returns NotInitialised.)
     // We test the encryption layer directly by passing the pool:
     let result = init_room_group_with_pool("room-test-001", vec![privkey.public_key()], &pool).await;
     assert!(result.is_ok(), "init_room_group should succeed: {:?}", result.err());
@@ -410,13 +410,13 @@ pub(crate) async fn init_room_group_with_pool(
     let all_ids: Vec<Id> = initial_members.iter().map(|pk| Id(*pk)).collect();
 
     // Build initial DGM + ordering state.
-    let dgm_state = DeltaDgm::create(my_id, &all_ids)
+    let dgm_state = GardensDgm::create(my_id, &all_ids)
         .map_err(|e| EncryptionError::Init(format!("DGM create: {e:?}")))?;
-    let ord_state = DeltaOrdering::init(enc.my_public_key);
+    let ord_state = GardensOrdering::init(enc.my_public_key);
 
     // Initialise and create the group.
-    let y = DeltaGroupState::init(my_id, km_state, kr_state, dgm_state, ord_state);
-    let (new_state, ctrl_msg) = DeltaGroupState::create(y, all_ids, &rng)
+    let y = GardensGroupState::init(my_id, km_state, kr_state, dgm_state, ord_state);
+    let (new_state, ctrl_msg) = GardensGroupState::create(y, all_ids, &rng)
         .map_err(|e| EncryptionError::Init(format!("GroupState::create: {e:?}")))?;
 
     // Persist the group state.
@@ -554,11 +554,11 @@ pub(crate) async fn encrypt_for_room_with_pool(
     let state_bytes = crate::db::load_enc_group_state(pool, room_id)
         .await?
         .ok_or_else(|| EncryptionError::Init(format!("no group state for room {room_id}")))?;
-    let state: DeltaGroupState = ciborium::from_reader(state_bytes.as_slice())
+    let state: GardensGroupState = ciborium::from_reader(state_bytes.as_slice())
         .map_err(|e| EncryptionError::Cbor(e.to_string()))?;
 
     // Encrypt via GroupState::send.
-    let (new_state, msg) = DeltaGroupState::send(state, plaintext, &rng)
+    let (new_state, msg) = GardensGroupState::send(state, plaintext, &rng)
         .map_err(|e| EncryptionError::Init(format!("GroupState::send: {e:?}")))?;
 
     // Persist updated state.
@@ -569,7 +569,7 @@ pub(crate) async fn encrypt_for_room_with_pool(
 
     // Extract ciphertext from the Application message.
     match msg.content {
-        DeltaMessageContent::Application { group_secret_id, nonce, ciphertext } => {
+        GardensMessageContent::Application { group_secret_id, nonce, ciphertext } => {
             let body = EncryptedBody {
                 secret_id: group_secret_id,
                 nonce:     nonce,   // XAeadNonce = [u8; 24]
@@ -600,17 +600,17 @@ pub(crate) async fn decrypt_for_room_with_pool(
 ) -> Option<Vec<u8>> {
     // Load group state.
     let state_bytes = crate::db::load_enc_group_state(pool, room_id).await.ok()??;
-    let state: DeltaGroupState = ciborium::from_reader(state_bytes.as_slice()).ok()?;
+    let state: GardensGroupState = ciborium::from_reader(state_bytes.as_slice()).ok()?;
 
     // Deserialise EncryptedBody.
     let body: EncryptedBody = ciborium::from_reader(body_bytes).ok()?;
     let sender_pk = p2panda_core::PublicKey::from_bytes(&body.sender_key).ok()?;
 
-    // Reconstruct a DeltaMessage::Application.
-    let msg = DeltaMessage {
+    // Reconstruct a GardensMessage::Application.
+    let msg = GardensMessage {
         id: OpId(p2panda_core::Hash::new(&body.ciphertext)),
         sender: Id(sender_pk),
-        content: DeltaMessageContent::Application {
+        content: GardensMessageContent::Application {
             group_secret_id: body.secret_id,
             nonce:            body.nonce,  // [u8; 24] == XAeadNonce
             ciphertext:       body.ciphertext,
@@ -618,7 +618,7 @@ pub(crate) async fn decrypt_for_room_with_pool(
     };
 
     // Decrypt via GroupState::receive.
-    let (new_state, outputs) = DeltaGroupState::receive(state, &msg).ok()?;
+    let (new_state, outputs) = GardensGroupState::receive(state, &msg).ok()?;
 
     // Persist updated state.
     let mut buf = Vec::new();
@@ -669,7 +669,7 @@ Add at the bottom of `core/src/blobs.rs`:
 ```rust
 #[cfg(test)]
 mod tests {
-    // Integration-style tests live in encryption.rs where DeltaCore is easier
+    // Integration-style tests live in encryption.rs where GardensCore is easier
     // to boot. Here we just sanity-check the hash function.
     #[test]
     fn blob_hash_is_deterministic() {
@@ -800,12 +800,12 @@ git commit -m "feat(phase7): rewrite blobs.rs with mime_type, room_id, encrypted
 ## Task 8: Update UDL and `lib.rs` for new `upload_blob` signature
 
 **Files:**
-- Modify: `core/src/delta_core.udl`
+- Modify: `core/src/gardens_core.udl`
 - Modify: `core/src/lib.rs`
 
 **Step 1: Update UDL**
 
-In `core/src/delta_core.udl`, replace the Phase 7 blob block:
+In `core/src/gardens_core.udl`, replace the Phase 7 blob block:
 
 ```
 // ── Phase 7: Blobs ─────────────────────────────────────────────────────
@@ -841,7 +841,7 @@ cd core && cargo check 2>&1 | grep -E "^error"
 **Step 4: Commit**
 
 ```bash
-git add core/src/delta_core.udl core/src/lib.rs
+git add core/src/gardens_core.udl core/src/lib.rs
 git commit -m "feat(phase7): update UDL for upload_blob(data, mime_type, room_id)"
 ```
 
@@ -850,9 +850,9 @@ git commit -m "feat(phase7): update UDL for upload_blob(data, mime_type, room_id
 ## Task 9: Wire TypeScript bridge
 
 **Files:**
-- Modify: `app/src/ffi/deltaCore.ts`
+- Modify: `app/src/ffi/gardensCore.ts`
 
-**Step 1: Add to `DeltaCoreNative` interface** (after `listOrgMembers`):
+**Step 1: Add to `GardensCoreNative` interface** (after `listOrgMembers`):
 
 ```ts
 // Phase 7
@@ -863,8 +863,8 @@ getBlob(blobHash: string): Promise<Uint8Array>;
 **Step 2: Add stubs to the fallback object** (in `loadNative()`'s catch block):
 
 ```ts
-async uploadBlob() { throw new Error('delta_core not loaded'); },
-async getBlob() { throw new Error('delta_core not loaded'); },
+async uploadBlob() { throw new Error('gardens_core not loaded'); },
+async getBlob() { throw new Error('gardens_core not loaded'); },
 ```
 
 **Step 3: Add exported wrappers** (at the bottom, after `listOrgMembers`):
@@ -898,7 +898,7 @@ export async function getBlob(blobHash: string): Promise<Uint8Array> {
 **Step 4: Commit**
 
 ```bash
-git add app/src/ffi/deltaCore.ts
+git add app/src/ffi/gardensCore.ts
 git commit -m "feat(phase7): add uploadBlob and getBlob to TypeScript bridge"
 ```
 
@@ -921,7 +921,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-import { getBlob } from '../ffi/deltaCore';
+import { getBlob } from '../ffi/gardensCore';
 
 interface Props {
   blobHash: string;
@@ -1087,7 +1087,7 @@ function AudioMessage({ blobHash }: { blobHash: string }) {
 }
 ```
 
-Add to imports at the top: `import { getBlob } from '../ffi/deltaCore';`
+Add to imports at the top: `import { getBlob } from '../ffi/gardensCore';`
 
 **Step 4: Add new style entries**
 
@@ -1257,7 +1257,7 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { Audio } from 'expo-av';
-import { uploadBlob } from '../ffi/deltaCore';
+import { uploadBlob } from '../ffi/gardensCore';
 import { GifSearchModal } from './GifSearchModal';
 
 interface Props {

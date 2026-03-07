@@ -27,7 +27,7 @@ pub enum AuthError {
 
 // ─── Access Levels ───────────────────────────────────────────────────────────
 
-/// Delta access levels (hierarchical supersets).
+/// Gardens access levels (hierarchical supersets).
 /// Pull → Read → Write → Manage
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum AccessLevel {

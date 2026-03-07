@@ -13,8 +13,9 @@ import {
 import ActionSheet, { SheetManager, SheetProps } from 'react-native-actions-sheet';
 import { X, Camera, Image as ImageIcon } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
+import RNFS from 'react-native-fs';
 import { useProfileStore } from '../stores/useProfileStore';
-import { createOrUpdateProfile } from '../ffi/deltaCore';
+import { uploadBlob } from '../ffi/gardensCore';
 
 export function EditProfileSheet(props: SheetProps<'edit-profile-sheet'>) {
   const { myProfile, localUsername, fetchMyProfile, profilePicUri, setProfilePicUri } = useProfileStore();
@@ -24,6 +25,7 @@ export function EditProfileSheet(props: SheetProps<'edit-profile-sheet'>) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarBlobId, setAvatarBlobId] = useState<string | null>(null);
   const [coverUri, setCoverUri] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,6 +47,9 @@ export function EditProfileSheet(props: SheetProps<'edit-profile-sheet'>) {
       if (profilePicUri) {
         setAvatarUri(profilePicUri);
       }
+      if (profile?.avatarBlobId) {
+        setAvatarBlobId(profile.avatarBlobId);
+      }
     } catch (err) {
       console.error('Failed to load profile:', err);
     } finally {
@@ -61,11 +66,33 @@ export function EditProfileSheet(props: SheetProps<'edit-profile-sheet'>) {
       });
 
       if (result.assets && result.assets[0] && result.assets[0].uri) {
+        const asset = result.assets[0];
         if (type === 'avatar') {
-          setAvatarUri(result.assets[0].uri);
-          await setProfilePicUri(result.assets[0].uri);
+          setAvatarUri(asset.uri);
+          await setProfilePicUri(asset.uri);
+          try {
+            const base64Data = await RNFS.readFile(asset.uri, 'base64');
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            const lookup = new Uint8Array(256);
+            for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
+            const bytes = base64Data.replace(/=+$/, '');
+            const output = new Uint8Array((bytes.length * 3) >> 2);
+            let ptr = 0;
+            for (let i = 0; i < bytes.length; i += 4) {
+              const a = lookup[bytes.charCodeAt(i)], b = lookup[bytes.charCodeAt(i+1)];
+              const c = lookup[bytes.charCodeAt(i+2)], d = lookup[bytes.charCodeAt(i+3)];
+              output[ptr++] = (a << 2) | (b >> 4);
+              if (i+2 < bytes.length) output[ptr++] = ((b & 15) << 4) | (c >> 2);
+              if (i+3 < bytes.length) output[ptr++] = ((c & 3) << 6) | d;
+            }
+            const mimeType = asset.type || 'image/jpeg';
+            const blobId = await uploadBlob(output.subarray(0, ptr), mimeType, null);
+            setAvatarBlobId(blobId);
+          } catch (e) {
+            console.warn('[profile] Failed to upload avatar blob:', e);
+          }
         } else {
-          setCoverUri(result.assets[0].uri);
+          setCoverUri(asset.uri);
         }
       }
     } catch {
@@ -81,14 +108,15 @@ export function EditProfileSheet(props: SheetProps<'edit-profile-sheet'>) {
 
     setSaving(true);
     try {
-      await createOrUpdateProfile(
+      const { createOrUpdateProfile: storeCreate } = useProfileStore.getState();
+      await storeCreate(
         displayName.trim(),
         bio.trim() || null,
         myProfile?.availableFor || [],
-        myProfile?.isPublic || false
+        myProfile?.isPublic || false,
+        avatarBlobId,
       );
 
-      await fetchMyProfile();
       SheetManager.hide('edit-profile-sheet');
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to update profile');
@@ -236,7 +264,7 @@ const s = StyleSheet.create({
   headerBtn: { padding: 4 },
   headerTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
   saveBtn: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#F2E58F',
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 16,

@@ -11,6 +11,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { MessageBubble } from '../components/MessageBubble';
 import { MessageComposer } from '../components/MessageComposer';
+import { extractMentions } from '../components/MessageText';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { useProfileStore } from '../stores/useProfileStore';
 
@@ -56,6 +57,7 @@ export function RoomChatScreen({ route }: Props) {
         roomId,
         contentType: 'text',
         textContent: text,
+        mentions: extractMentions(text),
         replyTo: replyingTo ?? undefined,
       });
       setReplyingTo(null);

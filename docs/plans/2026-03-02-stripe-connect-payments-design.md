@@ -1,20 +1,20 @@
-# Delta — Stripe Connect Community Paywall Design
+# Gardens — Stripe Connect Community Paywall Design
 
 **Date:** 2026-03-02  
 **Status:** Design Approved  
-**Author:** Delta Core Team
+**Author:** Gardens Core Team
 
 ---
 
 ## Overview
 
-Enable community owners to monetize access to their organizations using **Stripe Connect Express**. Members pay to join communities, with funds flowing directly to the community owner's Stripe account. Delta takes a platform fee (configurable, suggested: 5-10%).
+Enable community owners to monetize access to their organizations using **Stripe Connect Express**. Members pay to join communities, with funds flowing directly to the community owner's Stripe account. Gardens takes a platform fee (configurable, suggested: 5-10%).
 
 **Key Principles:**
-- **Privacy-Preserving:** Users pay via Stripe (KYC only with Stripe), not linked to their Delta identity
+- **Privacy-Preserving:** Users pay via Stripe (KYC only with Stripe), not linked to their Gardens identity
 - **Direct Payouts:** Community owners receive funds directly to their bank account
-- **No Custody:** Delta never holds funds; all transactions are peer-to-peer via Stripe
-- **Anonymous Joins:** Payment identity is separate from Delta cryptographic identity
+- **No Custody:** Gardens never holds funds; all transactions are peer-to-peer via Stripe
+- **Anonymous Joins:** Payment identity is separate from Gardens cryptographic identity
 
 ---
 
@@ -22,7 +22,7 @@ Enable community owners to monetize access to their organizations using **Stripe
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           Delta Mobile App                               │
+│                           Gardens Mobile App                               │
 │                                                                          │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────┐  │
 │  │   Member    │───▶│  Join Org   │───▶│  Check Payment Status       │  │
@@ -53,7 +53,7 @@ Enable community owners to monetize access to their organizations using **Stripe
                                     │ HTTPS / WebSocket
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         Delta Gateway (Node.js)                          │
+│                         Gardens Gateway (Node.js)                          │
 │                    (NEW: Payment service layer)                          │
 │                                                                          │
 │  ┌───────────────────────────────────────────────────────────────────┐  │
@@ -61,8 +61,8 @@ Enable community owners to monetize access to their organizations using **Stripe
 │  │                                                                    │  │
 │  │  CREATE TABLE payments (                                           │  │
 │  │      id              INTEGER PRIMARY KEY,                          │  │
-│  │      payer_key       TEXT NOT NULL,      -- User's Delta pubkey   │  │
-│  │      payee_key       TEXT NOT NULL,      -- Owner's Delta pubkey  │  │
+│  │      payer_key       TEXT NOT NULL,      -- User's Gardens pubkey   │  │
+│  │      payee_key       TEXT NOT NULL,      -- Owner's Gardens pubkey  │  │
 │  │      org_id          TEXT NOT NULL,                              │  │
 │  │      stripe_account  TEXT NOT NULL,      -- Connected acct ID     │  │
 │  │      stripe_session  TEXT,               -- Checkout session ID   │  │
@@ -104,12 +104,12 @@ Enable community owners to monetize access to their organizations using **Stripe
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │ Community Owner (Connected Account - Express)                    │    │
 │  │                                                                  │    │
-│  │  - Onboards via Stripe Express (KYC with Stripe, not Delta)     │    │
+│  │  - Onboards via Stripe Express (KYC with Stripe, not Gardens)     │    │
 │  │  - Receives 90-95% of payment directly to bank                  │    │
 │  │  - Stripe handles tax forms, compliance                         │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
-│  Platform Fee: 5-10% goes to Delta operator                              │
+│  Platform Fee: 5-10% goes to Gardens operator                              │
 │  Payout: Immediate to connected account (Stripe handles timing)          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -208,8 +208,8 @@ Content-Type: application/json
 {
   "owner_key": "<64-hex-chars>",
   "user_key": "<64-hex-chars>",
-  "success_url": "delta://payment/success",
-  "cancel_url": "delta://payment/cancel"
+  "success_url": "gardens://payment/success",
+  "cancel_url": "gardens://payment/cancel"
 }
 
 Response:
@@ -251,8 +251,8 @@ Stripe-Signature: <signature>
 POST /connect/onboard
 {
   "owner_key": "<hex>",
-  "refresh_url": "delta://stripe/refresh",
-  "return_url": "delta://stripe/return"
+  "refresh_url": "gardens://stripe/refresh",
+  "return_url": "gardens://stripe/return"
 }
 
 Response:
@@ -300,7 +300,7 @@ Token is base64-encoded and passed to the app. The app then calls the existing `
 |----------|-------------|---------------|-----------------|-------------------|
 | Payment card | Yes | No | No | No |
 | Email (optional) | Yes* | No | No | No |
-| Delta public key | No | Yes | No | No |
+| Gardens public key | No | Yes | No | No |
 | Username | No | No | No | Yes (after join) |
 
 *Stripe Express can be configured to not collect email

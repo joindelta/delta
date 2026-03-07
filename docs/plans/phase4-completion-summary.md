@@ -62,10 +62,10 @@ let kr_state = KeyRegistry::<Id>::init();
 
 Complete implementations for p2panda-encryption traits:
 
-- `DeltaDgm` — GroupMembership for data scheme (rooms)
-- `DeltaAckedDgm` — AckedGroupMembership for message scheme (DMs)
-- `DeltaOrdering` — Ordering for data scheme
-- `DeltaFsOrdering` — ForwardSecureOrdering for message scheme
+- `GardensDgm` — GroupMembership for data scheme (rooms)
+- `GardensAckedDgm` — AckedGroupMembership for message scheme (DMs)
+- `GardensOrdering` — Ordering for data scheme
+- `GardensFsOrdering` — ForwardSecureOrdering for message scheme
 - `Id` and `OpId` — IdentityHandle and OperationId wrappers
 
 ### 5. Op Payload Structs ✅
@@ -158,8 +158,8 @@ The `p2panda-encryption` library uses zero-sized marker types (`KeyRegistry`, `K
 **Solution:** Persist component states separately:
 - `KeyManagerState` (serializable)
 - `KeyRegistryState<Id>` (serializable)
-- `DeltaDgmState` (serializable)
-- `DeltaOrderingState` (serializable)
+- `GardensDgmState` (serializable)
+- `GardensOrderingState` (serializable)
 
 Reconstruct `GroupState` when needed by combining these components.
 

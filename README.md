@@ -1,10 +1,10 @@
-# Delta
+# Gardens
 
-The core repo for Delta, the encrypted P2P Discord alternative. Delta is a privacy-first messaging platform built on p2panda's operation-based CRDTs, with onion-routed message delivery and decentralized identity via the BitTorrent DHT.
+The core repo for Gardens, the encrypted P2P Discord alternative. Gardens is a privacy-first messaging platform built on p2panda's operation-based CRDTs, with onion-routed message delivery and decentralized identity via the BitTorrent DHT.
 
 ## Overview
 
-Delta provides:
+Gardens provides:
 - **End-to-end encrypted messaging** using p2panda's encryption schemes
 - **Onion-routed message delivery** through a network of community-operated relays
 - **Decentralized identity** via pkarr (public key + DHT)
@@ -18,7 +18,7 @@ flowchart TB
     subgraph Client["📱 Client (React Native + Rust Core)"]
         UI["UI Layer<br/>(React Native)"]
         FFI["FFI Bridge<br/>(UniFFI)"]
-        Core["Delta Core<br/>(Rust)"]
+        Core["Gardens Core<br/>(Rust)"]
         DB[("SQLite<br/>(Local Store)")]
         
         UI <--> FFI
@@ -53,7 +53,7 @@ flowchart TB
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **Delta Core** | Rust (p2panda) | Cryptography, operation encoding, local database |
+| **Gardens Core** | Rust (p2panda) | Cryptography, operation encoding, local database |
 | **FFI Bridge** | UniFFI | Rust ↔ TypeScript/Kotlin bindings |
 | **Mobile App** | React Native | UI, network management, relay discovery |
 | **Onion Relays** | Cloudflare Workers | Message routing and layer peeling |
@@ -63,7 +63,7 @@ flowchart TB
 ## Project Structure
 
 ```
-delta/
+gardens/
 ├── app/                    # React Native mobile application
 │   ├── android/           # Android-specific code & JNI libs
 │   ├── ios/               # iOS-specific code
@@ -93,7 +93,7 @@ delta/
 
 ## Regenerating FFI Bindings
 
-When you modify the UDL file (`core/src/delta_core.udl`) or add new Rust exports, you must regenerate the platform bindings:
+When you modify the UDL file (`core/src/gardens_core.udl`) or add new Rust exports, you must regenerate the platform bindings:
 
 ### Android (Kotlin)
 
@@ -102,17 +102,17 @@ cd core
 
 # Generate Kotlin bindings from UDL (outputs to tmp first due to nested paths)
 cargo run --bin uniffi-bindgen -- generate \
-  --language kotlin src/delta_core.udl \
+  --language kotlin src/gardens_core.udl \
   --out-dir /tmp/uniffi \
   --no-format
 
-# Move to correct location (uniffi creates nested uniffi/delta_core/ structure)
-mv /tmp/uniffi/uniffi/delta_core/delta_core.kt \
-  ../app/android/app/src/main/java/uniffi/delta_core/
+# Move to correct location (uniffi creates nested uniffi/gardens_core/ structure)
+mv /tmp/uniffi/uniffi/gardens_core/gardens_core.kt \
+  ../app/android/app/src/main/java/uniffi/gardens_core/
 ```
 
 This updates:
-- `app/android/app/src/main/java/uniffi/delta_core/delta_core.kt`
+- `app/android/app/src/main/java/uniffi/gardens_core/gardens_core.kt`
 
 ### iOS (Swift)
 
@@ -121,12 +121,12 @@ cd core
 
 # Generate Swift bindings from UDL
 cargo run --bin uniffi-bindgen -- generate \
-  --language swift src/delta_core.udl \
-  --out-dir ../app/ios/DeltaApp/
+  --language swift src/gardens_core.udl \
+  --out-dir ../app/ios/GardensApp/
 ```
 
 This creates:
-- `app/ios/DeltaApp/delta_core.swift`
+- `app/ios/GardensApp/gardens_core.swift`
 
 ## Setup
 
@@ -142,8 +142,8 @@ This creates:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourorg/delta.git
-cd delta
+git clone https://github.com/yourorg/gardens.git
+cd gardens
 
 # Install Rust dependencies and build
 cd core
@@ -178,8 +178,8 @@ cd core
 ./build-android.sh
 
 # This generates:
-# - app/android/app/src/main/jniLibs/arm64-v8a/libdelta_core.so
-# - app/android/app/src/main/jniLibs/x86_64/libdelta_core.so
+# - app/android/app/src/main/jniLibs/arm64-v8a/libgardens_core.so
+# - app/android/app/src/main/jniLibs/x86_64/libgardens_core.so
 # - Kotlin bindings via UniFFI
 ```
 
@@ -196,8 +196,8 @@ cargo build --target aarch64-apple-ios --release
 
 # Generate Swift bindings (requires uniffi-bindgen)
 cargo run --bin uniffi-bindgen -- generate \
-  --language swift src/delta_core.udl \
-  --out-dir ../app/ios/DeltaApp/
+  --language swift src/gardens_core.udl \
+  --out-dir ../app/ios/GardensApp/
 ```
 
 ### Running the App
@@ -342,7 +342,7 @@ const currentSeq = await getTopicSeqFfi(topicHex);
 
 ## License
 
-[MIT](LICENSE) © Delta Contributors
+[MIT](LICENSE) © Gardens Contributors
 
 ## Acknowledgments
 

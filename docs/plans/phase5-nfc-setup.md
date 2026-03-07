@@ -3,7 +3,7 @@
 ## iOS Configuration
 
 ### 1. Add NFC Capability
-Edit `ios/DeltaApp/DeltaApp.entitlements`:
+Edit `ios/GardensApp/GardensApp.entitlements`:
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -18,15 +18,15 @@ Edit `ios/DeltaApp/DeltaApp.entitlements`:
 ```
 
 ### 2. Update Info.plist
-Add to `ios/DeltaApp/Info.plist`:
+Add to `ios/GardensApp/Info.plist`:
 ```xml
 <key>NFCReaderUsageDescription</key>
-<string>Delta needs NFC access to read invite tags</string>
+<string>Gardens needs NFC access to read invite tags</string>
 ```
 
 ### 3. Enable in Xcode
-1. Open `ios/DeltaApp.xcworkspace` in Xcode
-2. Select DeltaApp target
+1. Open `ios/GardensApp.xcworkspace` in Xcode
+2. Select GardensApp target
 3. Go to "Signing & Capabilities"
 4. Click "+ Capability"
 5. Add "Near Field Communication Tag Reading"

@@ -15,7 +15,7 @@ export function WelcomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.hero}>
-        <Text style={styles.logo}>Delta</Text>
+        <Text style={styles.logo}>Gardens</Text>
         <Text style={styles.tagline}>Private, local-first messaging</Text>
       </View>
 

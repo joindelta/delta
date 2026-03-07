@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { X, SendHorizontal, Mic, Camera } from 'lucide-react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, SendHorizontal, Mic, Camera, Smile } from 'lucide-react-native';
 import {
   View,
   TextInput,
@@ -9,11 +9,14 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SheetManager } from 'react-native-actions-sheet';
 import { launchImageLibrary } from 'react-native-image-picker';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 import RNFS from 'react-native-fs';
-import { uploadBlob, initNetwork, isNetworkInitialized } from '../ffi/deltaCore';
+import { uploadBlob, initNetwork, isNetworkInitialized } from '../ffi/gardensCore';
 import { GifSearchModal } from './GifSearchModal';
+import { STANDARD_EMOJI_BY_CODE, STANDARD_EMOJI_CODES } from '../data/emoji';
+import { BlobImage } from './BlobImage';
 
 // Helper to convert base64 to Uint8Array without atob
 function base64ToBytes(base64: string): Uint8Array {
@@ -58,6 +61,12 @@ interface Props {
   placeholder?: string;
   replyingTo?: string | null;
   onCancelReply?: () => void;
+  customEmojiCodes?: string[];
+  customEmojis?: Record<string, { blobId: string; mimeType: string; roomId: string | null }>;
+  mentionCandidates?: string[];
+  channelCandidates?: string[];
+  prefillText?: string | null;
+  onPrefillApplied?: () => void;
 }
 
 export function MessageComposer({
@@ -69,12 +78,27 @@ export function MessageComposer({
   placeholder = 'Message...',
   replyingTo,
   onCancelReply,
+  customEmojiCodes = [],
+  customEmojis = {},
+  mentionCandidates = [],
+  channelCandidates = [],
+  prefillText,
+  onPrefillApplied,
 }: Props) {
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
   const [gifVisible, setGifVisible] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const recordingRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!prefillText) return;
+    setText(prev => {
+      if (!prev) return prefillText;
+      const needsSpace = !prev.endsWith(' ');
+      return needsSpace ? `${prev} ${prefillText}` : `${prev}${prefillText}`;
+    });
+    onPrefillApplied?.();
+  }, [prefillText, onPrefillApplied]);
 
   function handleSend() {
     const trimmed = text.trim();
@@ -166,6 +190,70 @@ export function MessageComposer({
   }
 
   const showPtt = text.trim().length === 0;
+  const emojiQueryMatch = text.match(/(^|\s)(:[a-zA-Z0-9_+-]{0,})$/);
+  const emojiQuery = emojiQueryMatch?.[2] ?? '';
+  const emojiSuggestions = emojiQuery
+    ? (() => {
+        const customMatches = customEmojiCodes.filter(code => code.startsWith(emojiQuery));
+        const standardMatches = STANDARD_EMOJI_CODES.filter(code => code.startsWith(emojiQuery));
+        const seen = new Set<string>();
+        const combined = [...customMatches, ...standardMatches].filter(code => {
+          if (seen.has(code)) return false;
+          seen.add(code);
+          return true;
+        });
+        return combined.slice(0, 6);
+      })()
+    : [];
+
+  const mentionQueryMatch = text.match(/(^|\s)@([a-zA-Z0-9_+-]*)$/);
+  const mentionQuery = mentionQueryMatch?.[2] ?? '';
+  const mentionSuggestions = mentionQueryMatch
+    ? mentionCandidates
+        .filter(name => name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
+        .slice(0, 6)
+    : [];
+
+  const channelQueryMatch = text.match(/(^|\s)#([a-zA-Z0-9_+-]*)$/);
+  const channelQuery = channelQueryMatch?.[2] ?? '';
+  const channelSuggestions = channelQueryMatch
+    ? channelCandidates
+        .filter(name => name.toLowerCase().startsWith(channelQuery.toLowerCase()))
+        .slice(0, 6)
+    : [];
+
+  function applyEmoji(code: string) {
+    const next = text.replace(/(^|\s)(:[a-zA-Z0-9_+-]{0,})$/, `$1${code} `);
+    setText(next);
+  }
+
+  function applyMention(username: string) {
+    const next = text.replace(/(^|\s)@([a-zA-Z0-9_+-]*)$/, `$1@${username} `);
+    setText(next);
+  }
+
+  function applyChannel(name: string) {
+    const next = text.replace(/(^|\s)#([a-zA-Z0-9_+-]*)$/, `$1#${name} `);
+    setText(next);
+  }
+
+  function insertEmoji(value: string) {
+    // If user is typing a :code: query, replace that token; otherwise append.
+    if (emojiQueryMatch && value.startsWith(':') && value.endsWith(':')) {
+      applyEmoji(value);
+      return;
+    }
+    setText(prev => (prev ? `${prev}${value} ` : `${value} `));
+  }
+
+  function openEmojiPicker() {
+    SheetManager.show('emoji-picker-sheet', {
+      payload: {
+        customEmojis,
+        onSelect: insertEmoji,
+      },
+    });
+  }
 
   return (
     <KeyboardAvoidingView
@@ -200,9 +288,57 @@ export function MessageComposer({
         </View>
       )}
 
+      {emojiSuggestions.length > 0 && (
+        <View style={styles.emojiSuggestRow}>
+          {emojiSuggestions.map(code => (
+            <TouchableOpacity key={code} style={styles.emojiSuggestBtn} onPress={() => applyEmoji(code)}>
+              {customEmojis[code] ? (
+                <>
+                  <BlobImage
+                    blobHash={customEmojis[code].blobId}
+                    mimeType={customEmojis[code].mimeType}
+                    roomId={customEmojis[code].roomId}
+                    style={styles.customEmojiPreview}
+                  />
+                  <Text style={styles.emojiSuggestText}>{code}</Text>
+                </>
+              ) : (
+                <Text style={styles.emojiSuggestText}>
+                  {STANDARD_EMOJI_BY_CODE[code] ? `${STANDARD_EMOJI_BY_CODE[code]} ${code}` : code}
+                </Text>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {mentionSuggestions.length > 0 && (
+        <View style={styles.emojiSuggestRow}>
+          {mentionSuggestions.map(name => (
+            <TouchableOpacity key={name} style={styles.emojiSuggestBtn} onPress={() => applyMention(name)}>
+              <Text style={styles.emojiSuggestText}>@{name}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {channelSuggestions.length > 0 && (
+        <View style={styles.emojiSuggestRow}>
+          {channelSuggestions.map(name => (
+            <TouchableOpacity key={name} style={styles.emojiSuggestBtn} onPress={() => applyChannel(name)}>
+              <Text style={styles.emojiSuggestText}>#{name}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       <View style={styles.container}>
         <TouchableOpacity style={[styles.attachBtn, trayOpen && styles.attachBtnActive]} onPress={() => setTrayOpen(o => !o)}>
           <Text style={styles.attachText}>{trayOpen ? '×' : '+'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.emojiBtn} onPress={openEmojiPicker}>
+          <Smile size={18} color="#9ca3af" />
         </TouchableOpacity>
 
         <TextInput
@@ -275,6 +411,28 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1a1a1a',
   },
+  emojiSuggestRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6,
+    backgroundColor: '#0a0a0a',
+    borderTopWidth: 1,
+    borderTopColor: '#1a1a1a',
+  },
+  emojiSuggestBtn: {
+    backgroundColor: '#1b1b1b',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  emojiSuggestText: { color: '#e5e7eb', fontSize: 12, fontWeight: '600' },
+  customEmojiPreview: { width: 16, height: 16, borderRadius: 4 },
   trayItem: {
     alignItems: 'center',
     gap: 8,
@@ -299,6 +457,14 @@ const styles = StyleSheet.create({
   },
   attachBtnActive: { backgroundColor: '#2a2a2a' },
   attachText: { color: '#888', fontSize: 24, fontWeight: '300' },
+  emojiBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#1a1a1a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   input: {
     flex: 1,
     backgroundColor: '#1a1a1a',

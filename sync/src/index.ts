@@ -1,11 +1,9 @@
 /**
- * Delta Sync Worker
+ * Gardens Sync Worker
  *
  * Endpoints:
- *   GET  /topic/<topic-hex>?since=<seq>       — WebSocket upgrade to TopicDO
- *   POST /deliver                             — from Relay Worker (service binding)
- *   GET  /topic/<topic-hex>/blobs/<hash>      — fetch blob
- *   PUT  /topic/<topic-hex>/blobs/<hash>      — store blob
+ *   GET  /topic/<topic-hex>?since=<seq>   — WebSocket upgrade to TopicDO (app subscribes)
+ *   POST /deliver                         — from Relay Worker (service binding)
  */
 
 import { TopicDO } from './topic-do';
@@ -21,7 +19,7 @@ export default {
     const url = new URL(request.url);
     const parts = url.pathname.split('/').filter(Boolean);
 
-    // GET /topic/<topic-hex> or /topic/<topic-hex>/blobs/<hash>
+    // GET /topic/<topic-hex>?since=<seq> — WebSocket to TopicDO
     if (parts[0] === 'topic' && parts[1]) {
       const topicHex = parts[1];
       if (!/^[0-9a-f]{64}$/i.test(topicHex)) {
@@ -32,7 +30,7 @@ export default {
       return stub.fetch(request);
     }
 
-    // POST /deliver { topic_hex, op_base64 }
+    // POST /deliver { topic_hex, op_base64 } — from relay or app
     if (request.method === 'POST' && parts[0] === 'deliver') {
       const body = await request.json() as { topic_hex: string; op_base64: string };
       if (!body.topic_hex || !body.op_base64) {

@@ -18,25 +18,30 @@ interface OgData {
 }
 
 function getMeta(html: string, property: string): string | undefined {
-  // Matches both orderings of property/content attributes
-  return (
-    html.match(new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i'))?.[1] ??
-    html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${property}["']`, 'i'))?.[1]
-  );
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const tag =
+    html.match(new RegExp(`<meta[^>]*\\bproperty\\s*=\\s*["']?${escaped}["']?[^>]*>`, 'i')) ??
+    html.match(new RegExp(`<meta[^>]*\\bcontent\\s*=\\s*["'][^"']+["'][^>]*\\bproperty\\s*=\\s*["']?${escaped}["']?[^>]*>`, 'i'));
+  if (!tag) return undefined;
+  return tag[0].match(/\bcontent\s*=\s*["']?([^"'>]+)["']?/i)?.[1];
 }
 
 function getMetaName(html: string, name: string): string | undefined {
-  return (
-    html.match(new RegExp(`<meta[^>]+name=["']${name}["'][^>]+content=["']([^"']+)["']`, 'i'))?.[1] ??
-    html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+name=["']${name}["']`, 'i'))?.[1]
-  );
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const tag =
+    html.match(new RegExp(`<meta[^>]*\\bname\\s*=\\s*["']?${escaped}["']?[^>]*>`, 'i')) ??
+    html.match(new RegExp(`<meta[^>]*\\bcontent\\s*=\\s*["'][^"']+["'][^>]*\\bname\\s*=\\s*["']?${escaped}["']?[^>]*>`, 'i'));
+  if (!tag) return undefined;
+  return tag[0].match(/\bcontent\s*=\s*["']?([^"'>]+)["']?/i)?.[1];
 }
 
 function resolveUrl(url: string, base: string): string {
   if (!url) return url;
-  if (url.startsWith('http')) return url;
+  if (url.startsWith('http') || url.startsWith('data:')) return url;
   try {
-    const origin = new URL(base).origin;
+    const baseUrl = new URL(base);
+    if (url.startsWith('//')) return `${baseUrl.protocol}${url}`;
+    const origin = baseUrl.origin;
     return url.startsWith('/') ? `${origin}${url}` : `${origin}/${url}`;
   } catch {
     return url;
@@ -56,6 +61,8 @@ function parseOg(html: string, pageUrl: string): OgData {
 
   const rawImage =
     getMeta(html, 'og:image') ??
+    getMeta(html, 'og:image:secure_url') ??
+    getMeta(html, 'og:image:url') ??
     getMetaName(html, 'twitter:image') ??
     getMetaName(html, 'twitter:image:src');
   const image = rawImage ? resolveUrl(rawImage, pageUrl) : undefined;
@@ -103,7 +110,7 @@ export function LinkPreview({ url }: Props) {
       .then(html => {
         if (cancelled) return;
         const og = parseOg(html, url);
-        const result = og.title || og.image ? og : null;
+        const result = og.title || og.image || og.description ? og : null;
         ogCache[url] = result;
         setData(result);
         setLoading(false);

@@ -2,7 +2,7 @@
 //!
 //! React Native manages the WebSocket connection. When an op arrives,
 //! RN calls `ingest_op(topic_hex, seq, op_bytes)` which inserts it into
-//! the DeltaStore. The projector picks it up within 500ms.
+//! the GardensStore. The projector picks it up within 500ms.
 
 use crate::ops::{decode_cbor, GossipEnvelope};
 use crate::store::get_core;

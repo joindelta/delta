@@ -435,6 +435,7 @@ dictionary DmThread {
     string recipient_key;
     i64 created_at;
     i64? last_message_at;
+    boolean is_request;
 };
 
 /// Returned by send_message and create_dm_thread.

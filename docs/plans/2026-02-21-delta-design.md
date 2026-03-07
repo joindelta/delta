@@ -1,4 +1,4 @@
-# Delta — Design Document
+# Gardens — Design Document
 **Date:** 2026-02-21
 **Status:** Approved
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-Delta is an encrypted, peer-to-peer Discord alternative for mobile (iOS + Android). It enables decentralized group communication through organizations ("Packs", "Collectives", "Communes", etc.), group-encrypted rooms, and 1:1 direct messages — all without any central server storing messages or managing identity.
+Gardens is an encrypted, peer-to-peer Discord alternative for mobile (iOS + Android). It enables decentralized group communication through organizations ("Packs", "Collectives", "Communes", etc.), group-encrypted rooms, and 1:1 direct messages — all without any central server storing messages or managing identity.
 
 ---
 
@@ -417,6 +417,6 @@ Composer is the same component in rooms and DMs, configured by context (`room_id
 ## Open Questions
 
 1. **Tenor vs. Giphy**: Tenor has a free API tier; Giphy requires a key but has broader reach. Either can plug into `<embed_url>` field with no data model changes.
-2. **Bootstrap node infrastructure**: Who runs the initial bootstrap nodes? Community-run vs. Delta-operated for launch.
+2. **Bootstrap node infrastructure**: Who runs the initial bootstrap nodes? Community-run vs. Gardens-operated for launch.
 3. **Push notifications**: P2P apps have no central server to send APNs/FCM. Options: (a) background sync polling, (b) opt-in relay for notifications only, (c) no notifications until app opens. Needs a decision before v1 ships.
 4. **Invite link expiry**: How long should QR invite tokens be valid? (Suggested: 24h, configurable by org admin.)

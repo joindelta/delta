@@ -13,7 +13,7 @@ import ActionSheet, { SheetManager, SheetProps } from 'react-native-actions-shee
 import { X, Copy, Eye, EyeOff, Shield } from 'lucide-react-native';
 import * as Keychain from 'react-native-keychain';
 
-const MNEMONIC_SERVICE = 'delta.mnemonic';
+const MNEMONIC_SERVICE = 'gardens.mnemonic';
 
 export function BackupSeedSheet(props: SheetProps<'backup-seed-sheet'>) {
   const [mnemonic, setMnemonic] = useState<string | null>(null);
@@ -137,7 +137,7 @@ export function BackupSeedSheet(props: SheetProps<'backup-seed-sheet'>) {
               style={[s.copyBtn, copied && s.copyBtnSuccess]} 
               onPress={handleCopy}
             >
-              <Copy size={18} color={copied ? '#22c55e' : '#fff'} />
+              <Copy size={18} color={copied ? '#F2E58F' : '#fff'} />
               <Text style={[s.copyBtnText, copied && s.copyBtnTextSuccess]}>
                 {copied ? 'Copied!' : 'Copy to Clipboard'}
               </Text>
@@ -290,7 +290,7 @@ const s = StyleSheet.create({
     fontWeight: '500',
   },
   copyBtnTextSuccess: {
-    color: '#22c55e',
+    color: '#F2E58F',
   },
   
   tipsSection: {
@@ -310,7 +310,7 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   tipBullet: {
-    color: '#22c55e',
+    color: '#F2E58F',
     fontSize: 14,
   },
   tipText: {

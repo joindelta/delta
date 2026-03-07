@@ -2,11 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement a general-purpose onion routing packet builder and peeler in the Rust core, exposed via UniFFI to React Native, so any delta protocol message can be layered-encrypted through an arbitrary chain of hops (Cloudflare Workers or iroh relay nodes) using each device's existing Ed25519 keypair as its routing identity.
+**Goal:** Implement a general-purpose onion routing packet builder and peeler in the Rust core, exposed via UniFFI to React Native, so any gardens protocol message can be layered-encrypted through an arbitrary chain of hops (Cloudflare Workers or iroh relay nodes) using each device's existing Ed25519 keypair as its routing identity.
 
-**Architecture:** Each onion layer is a binary envelope: `VERSION[1] | EPK[32] | NONCE[24] | CIPHERTEXT[N]`. The plaintext payload encodes either a "forward" instruction (next hop URL + inner packet) or a "deliver" instruction (iroh node ID + raw delta message bytes). Layers are built inside-out: innermost wraps the deliver instruction to the final hop, each outer layer wraps a forward instruction to the preceding hop. The sender's identity is never included — each layer uses a fresh ephemeral X25519 keypair, giving sender anonymity identical to Sphinx. Crypto is ECDH(ephemeral, hop_x25519) → HKDF-SHA256 → XChaCha20-Poly1305, reusing the exact same algorithm as `sealed_sender.rs`.
+**Architecture:** Each onion layer is a binary envelope: `VERSION[1] | EPK[32] | NONCE[24] | CIPHERTEXT[N]`. The plaintext payload encodes either a "forward" instruction (next hop URL + inner packet) or a "deliver" instruction (iroh node ID + raw gardens message bytes). Layers are built inside-out: innermost wraps the deliver instruction to the final hop, each outer layer wraps a forward instruction to the preceding hop. The sender's identity is never included — each layer uses a fresh ephemeral X25519 keypair, giving sender anonymity identical to Sphinx. Crypto is ECDH(ephemeral, hop_x25519) → HKDF-SHA256 → XChaCha20-Poly1305, reusing the exact same algorithm as `sealed_sender.rs`.
 
-**Tech Stack:** Rust, `x25519-dalek`, `chacha20poly1305`, `hkdf`, `sha2` (all already in Cargo.toml), UniFFI 0.31 for FFI, TypeScript wrapper in `deltaCore.ts`.
+**Tech Stack:** Rust, `x25519-dalek`, `chacha20poly1305`, `hkdf`, `sha2` (all already in Cargo.toml), UniFFI 0.31 for FFI, TypeScript wrapper in `gardensCore.ts`.
 
 ---
 
@@ -48,13 +48,13 @@ TYPE=Forward:
 
 TYPE=Deliver:
   [1..33]  destination_node_id: 32 bytes (iroh node ID)
-  [33..]   message: raw delta protocol bytes
+  [33..]   message: raw gardens protocol bytes
 ```
 
 No external encoding library needed — plain bytes.
 
 ### HKDF info string
-`b"delta:onion:v1"` — distinct from `b"delta:sealed-sender:v1"`.
+`b"gardens:onion:v1"` — distinct from `b"gardens:sealed-sender:v1"`.
 
 ---
 
@@ -120,10 +120,10 @@ The call sites in `seal()` and `open()` need the `info` argument added:
 
 ```rust
 // In seal():
-let aead_key = derive_aead_key(shared.as_bytes(), ephemeral_public.as_bytes(), b"delta:sealed-sender:v1");
+let aead_key = derive_aead_key(shared.as_bytes(), ephemeral_public.as_bytes(), b"gardens:sealed-sender:v1");
 
 // In open():
-let aead_key = derive_aead_key(shared.as_bytes(), &epk_bytes, b"delta:sealed-sender:v1");
+let aead_key = derive_aead_key(shared.as_bytes(), &epk_bytes, b"gardens:sealed-sender:v1");
 ```
 
 ### Step 3: Add `pub mod crypto;` to `lib.rs`
@@ -137,7 +137,7 @@ pub mod crypto;
 ### Step 4: Run existing sealed_sender tests to verify nothing broke
 
 ```bash
-cd /Users/jdbohrman/delta/core
+cd /Users/jdbohrman/gardens/core
 cargo test sealed_sender -- --nocapture
 ```
 
@@ -146,7 +146,7 @@ Expected: all 4 existing tests pass (`seal_and_open_roundtrip`, `wrong_recipient
 ### Step 5: Commit
 
 ```bash
-cd /Users/jdbohrman/delta/core
+cd /Users/jdbohrman/gardens/core
 git add src/crypto.rs src/sealed_sender.rs src/lib.rs
 git commit -m "refactor: extract shared Curve25519/AEAD helpers into crypto.rs"
 ```
@@ -204,7 +204,7 @@ mod tests {
     fn encrypt_decrypt_deliver_roundtrip() {
         let (seed, pubkey) = random_keypair();
         let node_id = [0xabu8; 32];
-        let message = b"raw delta protocol bytes";
+        let message = b"raw gardens protocol bytes";
         let payload = OnionPayload::Deliver {
             destination_node_id: node_id,
             message: message.to_vec(),
@@ -258,7 +258,7 @@ mod tests {
 ### Step 2: Run tests to verify they fail
 
 ```bash
-cd /Users/jdbohrman/delta/core
+cd /Users/jdbohrman/gardens/core
 cargo test onion -- --nocapture 2>&1 | head -30
 ```
 
@@ -287,7 +287,7 @@ const VERSION: u8      = 0x02;
 const EPK_LEN: usize   = 32;
 const NONCE_LEN: usize = 24;
 const MIN_LEN: usize   = 1 + EPK_LEN + NONCE_LEN + 16;
-const HKDF_INFO: &[u8] = b"delta:onion:v1";
+const HKDF_INFO: &[u8] = b"gardens:onion:v1";
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
@@ -436,7 +436,7 @@ pub fn decrypt_layer(envelope: &[u8], recipient_seed_bytes: &[u8; 32]) -> Result
 ### Step 4: Run tests — verify they pass
 
 ```bash
-cd /Users/jdbohrman/delta/core
+cd /Users/jdbohrman/gardens/core
 cargo test onion -- --nocapture
 ```
 
@@ -475,7 +475,7 @@ Add to the `tests` module in `onion.rs`:
     fn build_and_peel_single_hop() {
         let (hop1_seed, hop1_pk) = random_keypair();
         let dest_node_id = [0x42u8; 32];
-        let message = b"hello from delta";
+        let message = b"hello from gardens";
 
         let hops = vec![OnionHop {
             pubkey_bytes: hop1_pk,
@@ -563,7 +563,7 @@ Add to `onion.rs` (before the tests module):
 pub struct OnionHop {
     /// 32-byte Ed25519 public key of this hop (raw bytes, not hex).
     pub pubkey_bytes: [u8; 32],
-    /// HTTP URL where this hop accepts onion packets (e.g. "https://relay.delta.app/hop").
+    /// HTTP URL where this hop accepts onion packets (e.g. "https://relay.gardens.app/hop").
     pub next_url: String,
 }
 
@@ -628,12 +628,12 @@ git commit -m "feat(onion): multi-layer packet builder with inside-out wrapping"
 Expose `build_onion_packet` and `peel_onion_layer` through the FFI layer so React Native can call them.
 
 **Files:**
-- Modify: `core/src/delta_core.udl`
+- Modify: `core/src/gardens_core.udl`
 - Modify: `core/src/lib.rs`
 
-### Step 1: Add types and functions to `delta_core.udl`
+### Step 1: Add types and functions to `gardens_core.udl`
 
-Add at the end of the `namespace delta_core { }` block (before the closing brace), after the existing blob functions:
+Add at the end of the `namespace gardens_core { }` block (before the closing brace), after the existing blob functions:
 
 ```udl
     // ── Onion routing ──────────────────────────────────────────────────────
@@ -768,7 +768,7 @@ pub fn peel_onion_layer(
 ### Step 3: Build to verify no compile errors
 
 ```bash
-cd /Users/jdbohrman/delta/core
+cd /Users/jdbohrman/gardens/core
 cargo build 2>&1 | tail -20
 ```
 
@@ -785,7 +785,7 @@ Expected: all tests pass.
 ### Step 5: Commit
 
 ```bash
-git add src/delta_core.udl src/lib.rs
+git add src/gardens_core.udl src/lib.rs
 git commit -m "feat(onion): expose build_onion_packet and peel_onion_layer via UniFFI"
 ```
 
@@ -793,14 +793,14 @@ git commit -m "feat(onion): expose build_onion_packet and peel_onion_layer via U
 
 ## Task 5: TypeScript Bindings
 
-Wire the new FFI functions into `deltaCore.ts` so the React Native app can build and peel onion packets.
+Wire the new FFI functions into `gardensCore.ts` so the React Native app can build and peel onion packets.
 
 **Files:**
-- Modify: `app/src/ffi/deltaCore.ts`
+- Modify: `app/src/ffi/gardensCore.ts`
 
 ### Step 1: Add TypeScript types
 
-Find the `PkarrResolved` interface in `deltaCore.ts` and add after it:
+Find the `PkarrResolved` interface in `gardensCore.ts` and add after it:
 
 ```typescript
 export interface OnionHopFfi {
@@ -819,7 +819,7 @@ export interface OnionPeeled {
 
 ### Step 2: Add wrapper functions
 
-Add near the bottom of `deltaCore.ts`, after the `resolvePkarr` function:
+Add near the bottom of `gardensCore.ts`, after the `resolvePkarr` function:
 
 ```typescript
 // ── Onion routing ─────────────────────────────────────────────────────────────
@@ -830,7 +830,7 @@ Add near the bottom of `deltaCore.ts`, after the `resolvePkarr` function:
  * @param hops       Ordered list of hops (first to last). Sender posts the result
  *                   to hops[0].nextUrl.
  * @param destNodeId 32-byte iroh node ID of the final destination.
- * @param message    Raw delta protocol bytes to deliver.
+ * @param message    Raw gardens protocol bytes to deliver.
  * @returns          Onion packet bytes to POST to hops[0].nextUrl.
  */
 export async function buildOnionPacket(
@@ -859,17 +859,17 @@ export async function peelOnionLayer(
 ### Step 3: Verify TypeScript compiles
 
 ```bash
-cd /Users/jdbohrman/delta/app
+cd /Users/jdbohrman/gardens/app
 npx tsc --noEmit 2>&1 | head -30
 ```
 
-Expected: no errors referencing `deltaCore.ts`.
+Expected: no errors referencing `gardensCore.ts`.
 
 ### Step 4: Commit
 
 ```bash
-cd /Users/jdbohrman/delta/app
-git add src/ffi/deltaCore.ts
+cd /Users/jdbohrman/gardens/app
+git add src/ffi/gardensCore.ts
 git commit -m "feat(onion): TypeScript bindings for buildOnionPacket and peelOnionLayer"
 ```
 
@@ -885,7 +885,7 @@ These are the adjacent pieces that make the onion routing end-to-end useful. Eac
 
 3. **Worker keypair in pkarr** — Relay Workers publish their X25519 public key (derived from Ed25519) to the DHT so clients can build routes to them.
 
-4. **Route selection in the app** — Logic to pick N worker hops from known relay public keys and call `buildOnionPacket` before sending a delta message.
+4. **Route selection in the app** — Logic to pick N worker hops from known relay public keys and call `buildOnionPacket` before sending a gardens message.
 
 ---
 
@@ -900,5 +900,5 @@ These are the adjacent pieces that make the onion routing end-to-end useful. Eac
 | `decrypt_layer` | `onion.rs` | Decrypt one layer with the device seed |
 | `build_onion_packet` | `onion.rs` / `lib.rs` | Wrap N layers inside-out |
 | `peel_onion_layer` | `lib.rs` | FFI wrapper for `decrypt_layer` |
-| `buildOnionPacket` | `deltaCore.ts` | TypeScript → Rust FFI |
-| `peelOnionLayer` | `deltaCore.ts` | TypeScript → Rust FFI |
+| `buildOnionPacket` | `gardensCore.ts` | TypeScript → Rust FFI |
+| `peelOnionLayer` | `gardensCore.ts` | TypeScript → Rust FFI |

@@ -1,4 +1,4 @@
-# Delta — Phase 4 Encryption Design
+# Gardens — Phase 4 Encryption Design
 **Date:** 2026-02-21
 **Status:** Approved
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-Phase 4 wires `p2panda-encryption` into `core`, giving Delta end-to-end encrypted rooms (data scheme — shared symmetric key with post-compromise security) and encrypted DM threads (message scheme — Double Ratchet with forward secrecy). Encryption is transparent to React Native — `send_message` encrypts, `list_messages` returns plaintext, no new UniFFI functions required.
+Phase 4 wires `p2panda-encryption` into `core`, giving Gardens end-to-end encrypted rooms (data scheme — shared symmetric key with post-compromise security) and encrypted DM threads (message scheme — Double Ratchet with forward secrecy). Encryption is transparent to React Native — `send_message` encrypts, `list_messages` returns plaintext, no new UniFFI functions required.
 
 ---
 
@@ -26,10 +26,10 @@ core/src/
 ### Type Aliases
 
 ```rust
-type DeltaGroupState    = GroupState<PublicKey, Hash, KeyRegistry<PublicKey>,
-                                     DeltaDgm, KeyManager, DeltaOrdering>;
-type DeltaMsgGroupState = MsgGroupState<PublicKey, Hash, KeyRegistry<PublicKey>,
-                                        DeltaDgm, KeyManager, DeltaOrdering>;
+type GardensGroupState    = GroupState<PublicKey, Hash, KeyRegistry<PublicKey>,
+                                     GardensDgm, KeyManager, GardensOrdering>;
+type GardensMsgGroupState = MsgGroupState<PublicKey, Hash, KeyRegistry<PublicKey>,
+                                        GardensDgm, KeyManager, GardensOrdering>;
 ```
 
 ### EncryptionCore Struct
@@ -38,21 +38,21 @@ type DeltaMsgGroupState = MsgGroupState<PublicKey, Hash, KeyRegistry<PublicKey>,
 pub struct EncryptionCore {
     key_manager:  Mutex<KeyManagerState>,
     key_registry: Mutex<KeyRegistryState<PublicKey>>,
-    room_groups:  Mutex<HashMap<String, DeltaGroupState>>,    // room_id → state
-    dm_groups:    Mutex<HashMap<String, DeltaMsgGroupState>>, // thread_id → state
+    room_groups:  Mutex<HashMap<String, GardensGroupState>>,    // room_id → state
+    dm_groups:    Mutex<HashMap<String, GardensMsgGroupState>>, // thread_id → state
     read_pool:    SqlitePool,
 }
 
 static ENCRYPTION: OnceLock<EncryptionCore> = OnceLock::new();
 ```
 
-### DeltaDgm
+### GardensDgm
 
-`DeltaDgm` is a Phase 4 stub implementing `GroupMembership<PublicKey, Hash>`. Initialized from the `memberships` table at `bootstrap()`, updated in-memory as DCGKA add/remove ops arrive. Phase 5 replaces this with `p2panda-auth`.
+`GardensDgm` is a Phase 4 stub implementing `GroupMembership<PublicKey, Hash>`. Initialized from the `memberships` table at `bootstrap()`, updated in-memory as DCGKA add/remove ops arrive. Phase 5 replaces this with `p2panda-auth`.
 
-### DeltaOrdering
+### GardensOrdering
 
-`DeltaOrdering` implements `Ordering<PublicKey, Hash, DeltaDgm>` using p2panda op `seq_num` + `backlink` — the causal chain is already built into the p2panda-core header.
+`GardensOrdering` implements `Ordering<PublicKey, Hash, GardensDgm>` using p2panda op `seq_num` + `backlink` — the causal chain is already built into the p2panda-core header.
 
 ---
 
@@ -108,7 +108,7 @@ pub struct EncDirectOp {
 send_message(room_id, text_content, ...)
   → encode MessageOp to CBOR → plaintext_bytes
   → encryption::encrypt_for_room(room_id, plaintext_bytes)
-      → look up DeltaGroupState for room_id
+      → look up GardensGroupState for room_id
       → encrypt_data(secret_bundle.latest(), plaintext_bytes)
       → returns EncryptedBody { secret_id, nonce, ciphertext }
   → CBOR-encode EncryptedBody → body_bytes
@@ -236,15 +236,15 @@ React Native shows a `"•••"` placeholder. The 500ms projector poll retries
 ## Files Changed / Added
 
 ### Rust
-- `core/src/encryption.rs` — new: EncryptionCore singleton, DeltaDgm, DeltaOrdering, all encrypt/decrypt helpers
+- `core/src/encryption.rs` — new: EncryptionCore singleton, GardensDgm, GardensOrdering, all encrypt/decrypt helpers
 - `core/src/store.rs` — `bootstrap()` calls `init_encryption()`
 - `core/src/ops.rs` — new log IDs (`key_bundle`, `enc_ctrl`, `enc_direct`), new op structs, `sign_and_store_op` encrypts message/reaction bodies
 - `core/src/projector.rs` — decrypt before CBOR decode for `message`, process `enc_ctrl`/`enc_direct`/`key_bundle` ops
 - `core/src/db.rs` — three new tables + helpers
 - `core/src/lib.rs` — `Message` struct gains `decryption_pending`
 - `core/src/network.rs` — topic maps extended with new log IDs
-- `core/src/delta_core.udl` — `Message` dict updated
+- `core/src/gardens_core.udl` — `Message` dict updated
 
 ### React Native
-- `app/src/ffi/deltaCore.ts` — `Message` type gains `decryptionPending: boolean`
+- `app/src/ffi/gardensCore.ts` — `Message` type gains `decryptionPending: boolean`
 - `app/src/stores/useMessagesStore.ts` — render `"•••"` when `decryptionPending`

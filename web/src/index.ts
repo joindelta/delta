@@ -1,5 +1,5 @@
 /**
- * Delta Web Gateway — Cloudflare Worker with Hono
+ * Gardens Web Gateway — Cloudflare Worker with Hono
  *
  * Serves public profile/org pages for pkarr keys.
  * URLs: /pk:<z32-key> → HTML page with profile info
@@ -13,12 +13,36 @@ interface Env {
   APP_SCHEME: string;
   APP_STORE_URL?: string;
   PLAY_STORE_URL?: string;
+  DEFAULT_RELAY_URL?: string;
+  PUBLIC_BLOBS: KVNamespace;
 }
+
 
 const app = new Hono<{ Bindings: Env }>();
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok' }));
+
+// Blob passthrough — serve public blobs directly from KV
+app.get('/blob/:blobId', async (c) => {
+  const blobId = c.req.param('blobId').toLowerCase();
+
+  if (!/^[0-9a-f]{64}$/.test(blobId)) return c.body(null, 400);
+
+  const { value, metadata } = await c.env.PUBLIC_BLOBS.getWithMetadata<{ mimeType: string }>(
+    blobId,
+    'arrayBuffer',
+  );
+
+  if (!value) return c.body(null, 404);
+
+  return new Response(value, {
+    headers: {
+      'Content-Type': metadata?.mimeType ?? 'application/octet-stream',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    },
+  });
+});
 
 // Debug endpoint to test pkarr resolution
 app.get('/debug/pkarr/:z32Key', async (c) => {
@@ -59,7 +83,7 @@ app.get('/pk/:z32Key', async (c) => {
   return handleProfileRequest(c, z32Key);
 });
 
-// Custom domain handler - checks for _delta.<domain> TXT record
+// Custom domain handler - checks for _gardens.<domain> TXT record
 app.get('/', async (c) => {
   const host = c.req.header('host');
 
@@ -76,7 +100,7 @@ app.get('/', async (c) => {
   }
 
   // Default: redirect to main site
-  return c.redirect('https://delta.app', 302);
+  return c.redirect('https://gardens.app', 302);
 });
 
 /**
@@ -87,9 +111,9 @@ function isGatewayDomain(host: string): boolean {
   const gatewayDomains = [
     'localhost',
     'localhost:8787',
-    'pk.delta.app',
-    'gateway.delta.app',
-    'delta.pages.dev',
+    'pk.gardens.app',
+    'gateway.gardens.app',
+    'gardens.pages.dev',
   ];
 
   // Check exact match or ends with .pages.dev (Cloudflare Pages)
@@ -115,6 +139,7 @@ async function handleProfileRequest(
     appUrl,
     appStoreUrl: c.env.APP_STORE_URL,
     playStoreUrl: c.env.PLAY_STORE_URL,
+    gatewayOrigin: new URL(c.req.url).origin,
   };
 
   // Use appropriate template based on record type
@@ -141,7 +166,7 @@ function renderNotFoundPage(z32Key: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Not Found - Delta</title>
+  <title>Not Found - Gardens</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -184,7 +209,7 @@ function renderNotFoundPage(z32Key: string): string {
     <p>We couldn't find a public profile or organization for this key.</p>
     <div class="key">pk:${escapeHtml(z32Key)}</div>
     <p>The profile may have been removed or the key may be incorrect.</p>
-    <p><a href="https://delta.app">Download Delta App</a></p>
+    <p><a href="https://gardens.app">Download Gardens App</a></p>
   </div>
 </body>
 </html>`;
@@ -196,7 +221,7 @@ function renderDomainNotConfiguredPage(domain: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Domain Not Configured - Delta</title>
+  <title>Domain Not Configured - Gardens</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -258,20 +283,20 @@ function renderDomainNotConfiguredPage(domain: string): string {
   <div class="container">
     <div class="icon">🌐</div>
     <h1>Domain Not Configured</h1>
-    <p>This domain is not linked to a Delta profile.</p>
+    <p>This domain is not linked to a Gardens profile.</p>
     <div class="domain">${escapeHtml(domain)}</div>
 
     <div class="help">
       <h3>To link this domain:</h3>
       <div class="label">1. Create a CNAME record:</div>
-      <code>Host: @<br>Value: gateway.delta.app</code>
+      <code>Host: @<br>Value: gateway.gardens.app</code>
       <div class="label">2. Create a TXT record:</div>
-      <code>Host: _delta<br>Value: pk:&lt;your-public-key&gt;</code>
+      <code>Host: _gardens<br>Value: pk:&lt;your-public-key&gt;</code>
       <div class="label">Example:</div>
-      <code>Host: _delta<br>Value: pk:yj4bqhvahk8dge7r3s9q...</code>
+      <code>Host: _gardens<br>Value: pk:yj4bqhvahk8dge7r3s9q...</code>
     </div>
 
-    <p style="margin-top: 24px;"><a href="https://delta.app">Download Delta App</a></p>
+    <p style="margin-top: 24px;"><a href="https://gardens.app">Download Gardens App</a></p>
   </div>
 </body>
 </html>`;

@@ -9,6 +9,7 @@ interface RenderOptions {
   appUrl: string;
   appStoreUrl?: string;
   playStoreUrl?: string;
+  gatewayOrigin: string;
 }
 
 /**
@@ -35,15 +36,15 @@ const waveBackgroundSvg = `
 `;
 
 /**
- * Delta logo SVG
+ * Gardens logo SVG
  */
-const deltaLogoSvg = `
+const gardensLogoSvg = `
 <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="48" height="48" rx="12" fill="url(#deltaGrad)"/>
+  <rect width="48" height="48" rx="12" fill="url(#gardensGrad)"/>
   <path d="M14 24C14 18.4772 18.4772 14 24 14V14C29.5228 14 34 18.4772 34 24V28C34 32.4183 30.4183 36 26 36H22C17.5817 36 14 32.4183 14 28V24Z" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
   <circle cx="24" cy="24" r="4" fill="white"/>
   <defs>
-    <linearGradient id="deltaGrad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+    <linearGradient id="gardensGrad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
       <stop stop-color="#3B82F6"/>
       <stop offset="1" stop-color="#8B5CF6"/>
     </linearGradient>
@@ -301,10 +302,9 @@ const commonStyles = `
     z-index: 1;
   }
   .brand-logo {
-    font-size: 16px;
-    font-weight: 700;
-    color: #6b7280;
-    letter-spacing: -0.02em;
+    height: 32px;
+    width: auto;
+    opacity: 0.8;
   }
   @media (max-width: 520px) {
     .main-card {
@@ -321,26 +321,27 @@ const commonStyles = `
  * Render a profile page HTML for a resolved pkarr record.
  */
 export function renderProfilePage(record: ResolvedRecord, options: RenderOptions): string {
-  const { appUrl, appStoreUrl, playStoreUrl } = options;
-  
+  const { appUrl, appStoreUrl, playStoreUrl, gatewayOrigin } = options;
+
   const title = record.username || 'User';
   const description = record.bio;
   const displayHandle = `pk:${record.publicKey.slice(0, 16)}...${record.publicKey.slice(-8)}`;
-  
-  const avatarUrl = record.avatarBlobId 
-    ? `https://blobs.deltachat.io/${record.avatarBlobId}` 
+
+  const avatarUrl = record.avatarBlobId
+    ? `/blob/${record.avatarBlobId}?owner=${record.publicKey}`
     : null;
+  const ogImageUrl = avatarUrl ? `${gatewayOrigin}${avatarUrl}` : null;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta property="og:title" content="${escapeHtml(title)} on Delta">
-  <meta property="og:description" content="${escapeHtml(description || 'Connect with me on Delta - secure decentralized messaging')}">
-  ${avatarUrl ? `<meta property="og:image" content="${escapeHtml(avatarUrl)}">` : ''}
+  <meta property="og:title" content="${escapeHtml(title)} on Gardens">
+  <meta property="og:description" content="${escapeHtml(description || 'Connect with me on Gardens - secure decentralized messaging')}">
+  ${ogImageUrl ? `<meta property="og:image" content="${escapeHtml(ogImageUrl)}">` : ''}
   <meta name="twitter:card" content="summary">
-  <title>${escapeHtml(title)} - Delta</title>
+  <title>${escapeHtml(title)} - Gardens</title>
   <style>${commonStyles}</style>
 </head>
 <body>
@@ -365,10 +366,10 @@ export function renderProfilePage(record: ResolvedRecord, options: RenderOptions
     
     <div class="app-card">
       <div class="app-header">
-        <div class="app-name">Delta Messenger</div>
+        <div class="app-name">Gardens Messenger</div>
         <div class="app-description">
-          Connect securely on the Delta network.
-          <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
+          Connect securely on the Gardens network.
+          <a href="https://gardens.app" class="learn-more" target="_blank">Learn more</a>
         </div>
       </div>
       
@@ -391,10 +392,10 @@ export function renderProfilePage(record: ResolvedRecord, options: RenderOptions
         </button>
       </div>
       
-      <a href="${escapeHtml(appUrl)}" class="btn-primary">Open in Delta App</a>
+      <a href="${escapeHtml(appUrl)}" class="btn-primary">Open in Gardens App</a>
       
       <div class="alternative">
-        Don't have Delta? <a href="https://delta.app" target="_blank">Download now</a>
+        Don't have Gardens? <a href="https://gardens.app" target="_blank">Download now</a>
       </div>
     </div>
     
@@ -404,7 +405,7 @@ export function renderProfilePage(record: ResolvedRecord, options: RenderOptions
   </div>
   
   <div class="brand-footer">
-    <span class="brand-logo">delta Δ</span>
+    <img src="/gardens-logo.png" alt="Gardens" class="brand-logo">
   </div>
   
   <script>
@@ -427,26 +428,27 @@ export function renderProfilePage(record: ResolvedRecord, options: RenderOptions
  * Render an organization page with org-specific styling.
  */
 export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): string {
-  const { appUrl, appStoreUrl, playStoreUrl } = options;
-  
+  const { appUrl, appStoreUrl, playStoreUrl, gatewayOrigin } = options;
+
   const orgName = record.name || 'Organization';
   const description = record.description;
   const displayHandle = `pk:${record.publicKey.slice(0, 16)}...${record.publicKey.slice(-8)}`;
-  
-  const avatarUrl = record.avatarBlobId 
-    ? `https://blobs.deltachat.io/${record.avatarBlobId}` 
+
+  const avatarUrl = record.avatarBlobId
+    ? `/blob/${record.avatarBlobId}?owner=${record.publicKey}`
     : null;
+  const ogImageUrl = avatarUrl ? `${gatewayOrigin}${avatarUrl}` : null;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta property="og:title" content="${escapeHtml(orgName)} on Delta">
-  <meta property="og:description" content="${escapeHtml(description || 'Join our organization on Delta - secure team messaging')}">
-  ${avatarUrl ? `<meta property="og:image" content="${escapeHtml(avatarUrl)}">` : ''}
+  <meta property="og:title" content="${escapeHtml(orgName)} on Gardens">
+  <meta property="og:description" content="${escapeHtml(description || 'Join our organization on Gardens - secure team messaging')}">
+  ${ogImageUrl ? `<meta property="og:image" content="${escapeHtml(ogImageUrl)}">` : ''}
   <meta name="twitter:card" content="summary">
-  <title>${escapeHtml(orgName)} - Delta Organization</title>
+  <title>${escapeHtml(orgName)} - Gardens Organization</title>
   <style>${commonStyles}</style>
 </head>
 <body>
@@ -471,10 +473,10 @@ export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): s
     
     <div class="app-card">
       <div class="app-header">
-        <div class="app-name">Delta for Teams</div>
+        <div class="app-name">Gardens for Teams</div>
         <div class="app-description">
           Join this organization for secure, end-to-end encrypted team communication.
-          <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
+          <a href="https://gardens.app" class="learn-more" target="_blank">Learn more</a>
         </div>
       </div>
       
@@ -484,7 +486,7 @@ export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): s
       </div>
       
       <p class="instructions">
-        Open the Delta app, tap "Discover Organizations" and paste this identifier:
+        Open the Gardens app, tap "Discover Organizations" and paste this identifier:
       </p>
       
       <div class="copy-box">
@@ -500,7 +502,7 @@ export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): s
       <a href="${escapeHtml(appUrl)}" class="btn-primary">Join Organization</a>
       
       <div class="alternative">
-        Don't have Delta? <a href="https://delta.app" target="_blank">Download now</a>
+        Don't have Gardens? <a href="https://gardens.app" target="_blank">Download now</a>
       </div>
     </div>
     
@@ -510,7 +512,7 @@ export function renderOrgPage(record: ResolvedRecord, options: RenderOptions): s
   </div>
   
   <div class="brand-footer">
-    <span class="brand-logo">delta Δ</span>
+    <img src="/gardens-logo.png" alt="Gardens" class="brand-logo">
   </div>
   
   <script>
@@ -536,7 +538,7 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
   const { appUrl, appStoreUrl, playStoreUrl } = options;
   
   const relayUrl = record.relayUrl || 'Unknown Relay';
-  const relayName = record.name || 'Delta Relay';
+  const relayName = record.name || 'Gardens Relay';
   const displayHandle = `pk:${record.publicKey.slice(0, 16)}...${record.publicKey.slice(-8)}`;
 
   return `<!DOCTYPE html>
@@ -545,9 +547,9 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta property="og:title" content="${escapeHtml(relayName)}">
-  <meta property="og:description" content="Delta relay server for secure message routing">
+  <meta property="og:description" content="Gardens relay server for secure message routing">
   <meta name="twitter:card" content="summary">
-  <title>${escapeHtml(relayName)} - Delta Relay</title>
+  <title>${escapeHtml(relayName)} - Gardens Relay</title>
   <style>${commonStyles}</style>
 </head>
 <body>
@@ -564,16 +566,16 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
     </div>
     
     <p class="description">
-      This relay server helps route messages securely through the Delta network.
+      This relay server helps route messages securely through the Gardens network.
       Relays enable offline message delivery and improved connectivity.
     </p>
     
     <div class="app-card">
       <div class="app-header">
-        <div class="app-name">Delta Messenger</div>
+        <div class="app-name">Gardens Messenger</div>
         <div class="app-description">
           Use this relay for enhanced privacy and reliability.
-          <a href="https://delta.app" class="learn-more" target="_blank">Learn more</a>
+          <a href="https://gardens.app" class="learn-more" target="_blank">Learn more</a>
         </div>
       </div>
       
@@ -583,7 +585,7 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
       </div>
       
       <p class="instructions">
-        Open the Delta app, go to Settings → Network → Relays and paste this identifier:
+        Open the Gardens app, go to Settings → Network → Relays and paste this identifier:
       </p>
       
       <div class="copy-box">
@@ -599,7 +601,7 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
       <a href="${escapeHtml(appUrl)}" class="btn-primary" style="background: linear-gradient(135deg, #10b981, #059669);">Use This Relay</a>
       
       <div class="alternative">
-        Don't have Delta? <a href="https://delta.app" target="_blank">Download now</a>
+        Don't have Gardens? <a href="https://gardens.app" target="_blank">Download now</a>
       </div>
     </div>
     
@@ -609,7 +611,7 @@ export function renderRelayPage(record: ResolvedRecord, options: RenderOptions):
   </div>
   
   <div class="brand-footer">
-    <span class="brand-logo">delta Δ</span>
+    <img src="/gardens-logo.png" alt="Gardens" class="brand-logo">
   </div>
   
   <script>

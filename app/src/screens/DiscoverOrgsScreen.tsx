@@ -9,11 +9,11 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
-import type { OrgSummary } from '../ffi/deltaCore';
+import type { OrgSummary } from '../ffi/gardensCore';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getNative(): any {
-  try { return require('delta_core'); } catch { return null; }
+  try { return require('gardens_core'); } catch { return null; }
 }
 
 export function DiscoverOrgsScreen() {
