@@ -284,6 +284,13 @@ interface GardensCoreNative {
   muteMember(orgId: string, memberPublicKey: string, durationSeconds: number): Promise<void>;
   unmuteMember(orgId: string, memberPublicKey: string): Promise<void>;
   // Phase 7 — binary data is base64-encoded over the RN bridge
+  prepareOutboundEmail(
+    to: string,
+    subject: string,
+    bodyText: string,
+    bodyHtml: string | null,
+    replyToMessageId: string | null,
+  ): Promise<string>; // returns JSON: { signed_payload: string, signature: string }
   uploadBlob(dataBase64: string, mimeType: string, roomId: string | null): Promise<string>;
   getBlob(blobHash: string, roomId: string | null): Promise<string>; // returns base64
   hasBlob(blobHash: string): Promise<boolean>;
@@ -386,6 +393,7 @@ function loadNative(): GardensCoreNative {
       async getTopicSeqFfi() { return 0; },
       async buildOnionPacket() { throw new Error('gardens_core not loaded'); },
       async peelOnionLayer() { throw new Error('gardens_core not loaded'); },
+      async prepareOutboundEmail() { throw new Error('gardens_core not loaded'); },
     };
   }
 }
@@ -870,4 +878,24 @@ export async function peelOnionLayer(
     topicId: raw.topicIdBase64 ? base64ToBytes(raw.topicIdBase64) : null,
     op: raw.opBase64 ? base64ToBytes(raw.opBase64) : null,
   };
+}
+
+// ── Email ─────────────────────────────────────────────────────────────────────
+
+export async function prepareOutboundEmail(params: {
+  to: string;
+  subject: string;
+  bodyText: string;
+  bodyHtml?: string;
+  replyToMessageId?: string;
+}): Promise<{ signedPayload: string; signature: string }> {
+  const raw = await native.prepareOutboundEmail(
+    params.to,
+    params.subject,
+    params.bodyText,
+    params.bodyHtml ?? null,
+    params.replyToMessageId ?? null,
+  );
+  const parsed = JSON.parse(raw) as { signed_payload: string; signature: string };
+  return { signedPayload: parsed.signed_payload, signature: parsed.signature };
 }
