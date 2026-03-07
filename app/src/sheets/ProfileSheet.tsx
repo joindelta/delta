@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, Image, Share, StyleSheet,
 } from 'react-native';
@@ -9,6 +9,7 @@ import { Pencil, Search, Settings, X } from 'lucide-react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProfileStore } from '../stores/useProfileStore';
+import { ignoreUser, unignoreUser, listIgnoredUsers } from '../ffi/gardensCore';
 import type { MainStackParamList } from '../navigation/RootNavigator';
 
 type Nav = NativeStackNavigationProp<MainStackParamList>;
@@ -21,6 +22,27 @@ export function ProfileSheet(props: SheetProps<'profile-sheet'>) {
   const publicKey = myProfile?.publicKey ?? keypair?.publicKeyHex ?? '';
   const username  = myProfile?.username ?? localUsername ?? 'Anonymous';
   const initials  = username.slice(0, 2).toUpperCase();
+
+  const [isIgnored, setIsIgnored] = useState(false);
+
+  useEffect(() => {
+    if (publicKey) {
+      listIgnoredUsers().then((ignored) => {
+        setIsIgnored(ignored.includes(publicKey));
+      }).catch(() => {});
+    }
+  }, [publicKey]);
+
+  async function handleIgnoreToggle() {
+    try {
+      if (isIgnored) {
+        await unignoreUser(publicKey);
+      } else {
+        await ignoreUser(publicKey);
+      }
+      setIsIgnored(!isIgnored);
+    } catch {}
+  }
 
   async function handlePickImage() {
     const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.8, selectionLimit: 1 });
@@ -105,6 +127,15 @@ export function ProfileSheet(props: SheetProps<'profile-sheet'>) {
             <Text style={ps.menuItemText}>Settings</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          style={isIgnored ? ps.ignoreActiveBtn : ps.ignoreBtn}
+          onPress={handleIgnoreToggle}
+        >
+          <Text style={isIgnored ? ps.ignoreActiveBtnText : ps.ignoreBtnText}>
+            {isIgnored ? 'Unignore User' : 'Ignore User'}
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </ActionSheet>
   );
@@ -120,7 +151,7 @@ const ps = StyleSheet.create({
   avatarLarge:    { width: 96, height: 96, borderRadius: 48 },
   avatarPlaceholder: { backgroundColor: '#7c3aed', alignItems: 'center', justifyContent: 'center' },
   avatarInitials: { color: '#fff', fontSize: 36, fontWeight: '700' },
-  addDot:         { position: 'absolute', bottom: 2, right: 2, width: 26, height: 26, borderRadius: 13, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#111' },
+  addDot:         { position: 'absolute', bottom: 2, right: 2, width: 26, height: 26, borderRadius: 13, backgroundColor: '#F2E58F', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#111' },
   addDotText:     { color: '#000', fontSize: 16, fontWeight: '700', lineHeight: 20 },
   username:       { color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center', marginBottom: 20 },
   keySection:     { marginBottom: 20 },
@@ -128,10 +159,14 @@ const ps = StyleSheet.create({
   keyLabelPill:   { borderWidth: 1, borderColor: '#333', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 4 },
   keyLabelText:   { color: '#888', fontSize: 13 },
   keyText:        { color: '#fff', fontSize: 14, textAlign: 'center', lineHeight: 22, letterSpacing: 0.5 },
-  shareBtn:       { borderWidth: 1, borderColor: '#22c55e', borderRadius: 24, paddingVertical: 12, alignItems: 'center', marginBottom: 24 },
-  shareBtnText:   { color: '#22c55e', fontWeight: '700', fontSize: 15 },
+  shareBtn:       { borderWidth: 1, borderColor: '#F2E58F', borderRadius: 24, paddingVertical: 12, alignItems: 'center', marginBottom: 24 },
+  shareBtnText:   { color: '#F2E58F', fontWeight: '700', fontSize: 15 },
   menuSection:    { backgroundColor: '#1a1a1a', borderRadius: 14, overflow: 'hidden', marginBottom: 16 },
   menuItem:       { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 16 },
   menuItemText:   { color: '#fff', fontSize: 15, fontWeight: '500' },
   menuDivider:    { height: 1, backgroundColor: '#2a2a2a', marginLeft: 50 },
+  ignoreBtn:      { backgroundColor: '#1a1a1a', borderRadius: 10, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#555', marginBottom: 16 },
+  ignoreBtnText:  { color: '#aaa', fontSize: 15, fontWeight: '600' },
+  ignoreActiveBtn:     { backgroundColor: '#1a1a1a', borderRadius: 10, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#3b82f6', marginBottom: 16 },
+  ignoreActiveBtnText: { color: '#3b82f6', fontSize: 15, fontWeight: '600' },
 });

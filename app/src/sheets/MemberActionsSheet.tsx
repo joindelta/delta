@@ -7,8 +7,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
-import type { MemberInfo } from '../ffi/deltaCore';
-import { getProfile, changeMemberPermission, removeMemberFromOrg } from '../ffi/deltaCore';
+import type { MemberInfo } from '../ffi/gardensCore';
+import { getProfile, changeMemberPermission, removeMemberFromOrg, setUserCooldown, iceMember, uniceMember, ignoreUser, unignoreUser, listIgnoredUsers } from '../ffi/gardensCore';
 import { BlobImage } from '../components/BlobImage';
 
 const ACCESS_LEVELS = ['Pull', 'Read', 'Write', 'Manage'] as const;
@@ -27,6 +27,7 @@ export function MemberActionsSheet(props: MemberActionsSheetProps) {
   const { member, orgId, onAction } = props.payload || {};
   const [profile, setProfile] = useState<{ username: string; avatarBlobId: string | null; bio: string | null } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [isIgnored, setIsIgnored] = useState(false);
 
   const loadProfile = useCallback(async () => {
     if (!member) return;
@@ -43,6 +44,9 @@ export function MemberActionsSheet(props: MemberActionsSheetProps) {
   useEffect(() => {
     if (member) {
       loadProfile();
+      listIgnoredUsers().then((ignored) => {
+        setIsIgnored(ignored.includes(member.publicKey));
+      }).catch(() => {});
     }
   }, [member, loadProfile]);
 
@@ -72,6 +76,59 @@ export function MemberActionsSheet(props: MemberActionsSheetProps) {
       SheetManager.hide('member-actions-sheet');
     } catch {
       // Error handled by caller
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleSetUserCooldown(secs: number) {
+    setActionLoading(true);
+    try {
+      await setUserCooldown(orgId!, member!.publicKey, secs);
+      onAction?.();
+      SheetManager.hide('member-actions-sheet');
+    } catch {
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleIce(secs: number) {
+    setActionLoading(true);
+    try {
+      await iceMember(orgId!, member!.publicKey, secs);
+      onAction?.();
+      SheetManager.hide('member-actions-sheet');
+    } catch {
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleUnice() {
+    setActionLoading(true);
+    try {
+      await uniceMember(orgId!, member!.publicKey);
+      onAction?.();
+      SheetManager.hide('member-actions-sheet');
+    } catch {
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleIgnoreToggle() {
+    setActionLoading(true);
+    try {
+      if (isIgnored) {
+        await unignoreUser(member!.publicKey);
+      } else {
+        await ignoreUser(member!.publicKey);
+      }
+      setIsIgnored(!isIgnored);
+      onAction?.();
+      SheetManager.hide('member-actions-sheet');
+    } catch {
     } finally {
       setActionLoading(false);
     }
@@ -163,12 +220,69 @@ export function MemberActionsSheet(props: MemberActionsSheetProps) {
 
         {/* Danger Zone */}
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Cooldowns & Ice</Text>
+          <View style={styles.levelGrid}>
+            {[10, 30, 60].map((secs) => (
+              <TouchableOpacity
+                key={`cd-${secs}`}
+                style={styles.levelBtn}
+                onPress={() => handleSetUserCooldown(secs)}
+                disabled={actionLoading}
+              >
+                <Text style={styles.levelBtnText}>{secs}s Slow</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.levelBtn}
+              onPress={() => handleSetUserCooldown(0)}
+              disabled={actionLoading}
+            >
+              <Text style={styles.levelBtnText}>Clear Slow</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.levelGrid, { marginTop: 8 }]}>
+            {[3600, 21600, 86400].map((secs) => (
+              <TouchableOpacity
+                key={`ice-${secs}`}
+                style={styles.levelBtn}
+                onPress={() => handleIce(secs)}
+                disabled={actionLoading}
+              >
+                <Text style={styles.levelBtnText}>
+                  Ice {secs === 3600 ? '1h' : secs === 21600 ? '6h' : '24h'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.levelBtn}
+              onPress={handleUnice}
+              disabled={actionLoading}
+            >
+              <Text style={styles.levelBtnText}>Unice</Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity
             style={styles.dangerBtn}
             onPress={handleRemoveMember}
             disabled={actionLoading}
           >
             <Text style={styles.dangerBtnText}>Remove Member</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Ignore */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Privacy</Text>
+          <TouchableOpacity
+            style={isIgnored ? styles.ignoreActiveBtn : styles.ignoreBtn}
+            onPress={handleIgnoreToggle}
+            disabled={actionLoading}
+          >
+            <Text style={isIgnored ? styles.ignoreActiveBtnText : styles.ignoreBtnText}>
+              {isIgnored ? 'Unignore User' : 'Ignore User'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -348,5 +462,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  ignoreBtn: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#555',
+  },
+  ignoreBtnText: {
+    color: '#aaa',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  ignoreActiveBtn: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  ignoreActiveBtnText: {
+    color: '#3b82f6',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
