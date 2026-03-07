@@ -28,6 +28,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
         "ALTER TABLE rooms ADD COLUMN room_cooldown_secs INTEGER",
         "ALTER TABLE profiles ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE organizations ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE dm_threads ADD COLUMN is_request INTEGER NOT NULL DEFAULT 0",
     ];
     for sql in &additive_migrations {
         let _ = sqlx::query(sql).execute(pool).await;
@@ -422,6 +423,7 @@ pub struct DmThreadRow {
     pub recipient_key: String,
     pub created_at: i64,
     pub last_message_at: Option<i64>,
+    pub is_request: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -758,6 +760,16 @@ pub async fn unban_member(
     sqlx::query("DELETE FROM org_bans WHERE org_id = ? AND member_key = ?")
         .bind(org_id)
         .bind(member_key)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Increment enc_key_epoch for all rooms in an org.
+/// Called after a ban to force key rotation for subsequent messages.
+pub async fn bump_room_epochs_for_org(pool: &SqlitePool, org_id: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE rooms SET enc_key_epoch = enc_key_epoch + 1 WHERE org_id = ?")
+        .bind(org_id)
         .execute(pool)
         .await?;
     Ok(())
@@ -1261,8 +1273,8 @@ pub async fn delete_reaction(
 
 pub async fn insert_dm_thread(pool: &SqlitePool, row: &DmThreadRow) -> Result<(), DbError> {
     sqlx::query(
-        r#"INSERT INTO dm_threads (thread_id, initiator_key, recipient_key, created_at, last_message_at)
-           VALUES (?, ?, ?, ?, ?)
+        r#"INSERT INTO dm_threads (thread_id, initiator_key, recipient_key, created_at, last_message_at, is_request)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(thread_id) DO UPDATE SET last_message_at = excluded.last_message_at"#,
     )
     .bind(&row.thread_id)
@@ -1270,6 +1282,7 @@ pub async fn insert_dm_thread(pool: &SqlitePool, row: &DmThreadRow) -> Result<()
     .bind(&row.recipient_key)
     .bind(row.created_at)
     .bind(row.last_message_at)
+    .bind(if row.is_request { 1i64 } else { 0i64 })
     .execute(pool)
     .await?;
     Ok(())
@@ -1419,7 +1432,7 @@ pub async fn last_message_in_org_by_author(
 
 pub async fn list_dm_threads(pool: &SqlitePool, my_key: &str) -> Result<Vec<DmThreadRow>, DbError> {
     let rows = sqlx::query(
-        r#"SELECT thread_id, initiator_key, recipient_key, created_at, last_message_at
+        r#"SELECT thread_id, initiator_key, recipient_key, created_at, last_message_at, is_request
            FROM dm_threads
            WHERE initiator_key = ? OR recipient_key = ?
            ORDER BY COALESCE(last_message_at, created_at) DESC"#,
@@ -1437,8 +1450,33 @@ pub async fn list_dm_threads(pool: &SqlitePool, my_key: &str) -> Result<Vec<DmTh
             recipient_key: r.get("recipient_key"),
             created_at: r.get("created_at"),
             last_message_at: r.get("last_message_at"),
+            is_request: r.get::<i64, _>("is_request") != 0,
         })
         .collect())
+}
+
+/// Returns true if `initiator_key` has a prior relationship with `local_key`:
+/// an existing DM thread, or shared org membership.
+pub async fn is_known_sender(pool: &SqlitePool, initiator_key: &str, local_key: &str) -> Result<bool, DbError> {
+    // Check for existing DM thread
+    let existing = sqlx::query(
+        "SELECT 1 FROM dm_threads WHERE (initiator_key = ? AND recipient_key = ?) OR (initiator_key = ? AND recipient_key = ?) LIMIT 1"
+    )
+    .bind(initiator_key).bind(local_key)
+    .bind(local_key).bind(initiator_key)
+    .fetch_optional(pool)
+    .await?;
+    if existing.is_some() {
+        return Ok(true);
+    }
+    // Check for shared org membership
+    let shared_org = sqlx::query(
+        "SELECT 1 FROM memberships m1 JOIN memberships m2 ON m1.org_id = m2.org_id WHERE m1.member_key = ? AND m2.member_key = ? LIMIT 1"
+    )
+    .bind(initiator_key).bind(local_key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(shared_org.is_some())
 }
 
 // ─── Blob meta ───────────────────────────────────────────────────────────────
@@ -1531,7 +1569,7 @@ pub async fn get_dm_thread(
     thread_id: &str,
 ) -> Result<Option<DmThreadRow>, DbError> {
     let row = sqlx::query(
-        r#"SELECT thread_id, initiator_key, recipient_key, created_at, last_message_at
+        r#"SELECT thread_id, initiator_key, recipient_key, created_at, last_message_at, is_request
            FROM dm_threads WHERE thread_id = ?"#,
     )
     .bind(thread_id)
@@ -1543,6 +1581,7 @@ pub async fn get_dm_thread(
         recipient_key: r.get("recipient_key"),
         created_at: r.get("created_at"),
         last_message_at: r.get("last_message_at"),
+        is_request: r.get::<i64, _>("is_request") != 0,
     });
     Ok(row)
 }

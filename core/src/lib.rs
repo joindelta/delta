@@ -391,6 +391,7 @@ pub struct DmThread {
     pub recipient_key: String,
     pub created_at: i64,
     pub last_message_at: Option<i64>,
+    pub is_request: bool,
 }
 
 // ── Conversions from db rows ──────────────────────────────────────────────────
@@ -491,6 +492,7 @@ fn dm_from_row(row: DmThreadRow) -> DmThread {
         recipient_key: row.recipient_key,
         created_at: row.created_at,
         last_message_at: row.last_message_at,
+        is_request: row.is_request,
     }
 }
 
@@ -1279,6 +1281,12 @@ pub fn ban_member(org_id: String, member_public_key: String) -> Result<(), AuthE
         )
         .await
         .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        // Rotate encryption epoch for all org rooms so the banned user's
+        // key material cannot decrypt future messages.
+        db::bump_room_epochs_for_org(&core.read_pool, &org_id)
+            .await
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
 
         // Also remove from memberships if present
         let _ = remove_member_from_org(org_id.clone(), member_public_key.clone());
@@ -2281,6 +2289,7 @@ pub fn create_dm_thread(recipient_key: String) -> Result<SendResult, CoreError> 
                 recipient_key: recipient_key.clone(),
                 created_at: now,
                 last_message_at: None,
+                is_request: false,
             },
         )
         .await?;
