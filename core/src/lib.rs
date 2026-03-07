@@ -525,6 +525,7 @@ pub fn create_or_update_profile(
     bio: Option<String>,
     available_for: Vec<String>,
     is_public: bool,
+    avatar_blob_id: Option<String>,
 ) -> Result<(), CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
@@ -567,7 +568,7 @@ pub fn create_or_update_profile(
             &ProfileRow {
                 public_key: core.public_key_hex.clone(),
                 username: username.clone(),
-                avatar_blob_id: None,
+                avatar_blob_id: avatar_blob_id.clone().or_else(|| existing.as_ref().and_then(|p| p.avatar_blob_id.clone())),
                 bio: bio.clone(),
                 available_for: serde_json::to_string(&available_for).unwrap_or_default(),
                 is_public: Some(if is_public { 1 } else { 0 }),
@@ -582,12 +583,16 @@ pub fn create_or_update_profile(
         let private_key_hex = core.private_key.to_hex();
         if is_public {
             // Publish profile to DHT
+            let avatar_for_publish = avatar_blob_id.clone()
+                .or_else(|| existing.as_ref().and_then(|p| p.avatar_blob_id.clone()));
+            let relay_z32_for_publish = sync_config::get_relay_z32();
             if let Err(e) = pkarr_publish::publish_profile(
                 &private_key_hex,
                 &username,
                 bio.as_deref(),
-                None, // avatar_blob_id
-                None, // relay_z32
+                avatar_for_publish.as_deref(),
+                relay_z32_for_publish.as_deref(),
+                false,
             ).await {
                 log::error!("[pkarr] Failed to publish profile: {}", e);
             } else {
@@ -734,6 +739,7 @@ pub fn create_org(
         if is_public {
             if let Some(org_seed) = decrypt_org_privkey(&org_privkey_enc_for_publish, &user_signing_key) {
                 let org_pk_hex = hex::encode(org_seed);
+                let relay_z32_for_publish = sync_config::get_relay_z32();
                 if let Err(e) = pkarr_publish::publish_org_with_key(
                     &org_pk_hex,
                     &org_id,
@@ -741,7 +747,8 @@ pub fn create_org(
                     description.as_deref(),
                     None,
                     None,
-                    None, // relay_z32
+                    relay_z32_for_publish.as_deref(),
+                    false,
                 ).await {
                     log::error!("[pkarr] failed to publish new org: {}", e);
                 }
@@ -1021,7 +1028,7 @@ pub fn update_org(
     custom_emoji_json: Option<String>,
     org_cooldown_secs: Option<i64>,
     is_public: Option<bool>,
-) -> Result<(), CoreError> {
+) -> Result<Vec<u8>, CoreError> {
     store::block_on(async move {
         log::info!(
             "[update_org] org_id={} is_public={:?}",
@@ -1080,9 +1087,9 @@ pub fn update_org(
         let payload = ops::encode_cbor(&update_op)
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
 
-        {
+        let gossip_bytes = {
             let mut store_guard = core.op_store.lock().await;
-            ops::sign_and_store_op(
+            let (_op_hash, gossip_bytes) = ops::sign_and_store_op(
                 &mut *store_guard,
                 &org_private_key,  // Sign with org's key, not user's key
                 ops::log_ids::ORG,
@@ -1090,7 +1097,8 @@ pub fn update_org(
             )
             .await
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
-        }
+            gossip_bytes
+        };
 
         // Update in database
         db::update_org(
@@ -1123,6 +1131,7 @@ pub fn update_org(
                 let org_name = name.as_deref().unwrap_or(&org_row.name);
                 let org_desc = description.as_deref().or(org_row.description.as_deref());
 
+                let relay_z32_for_publish = sync_config::get_relay_z32();
                 if let Err(e) = pkarr_publish::publish_org_with_key(
                     &pk_hex,
                     &org_id,
@@ -1130,14 +1139,15 @@ pub fn update_org(
                     org_desc,
                     avatar_blob_id.as_deref(),
                     cover_blob_id.as_deref(),
-                    None, // relay_z32
+                    relay_z32_for_publish.as_deref(),
+                    false,
                 ).await {
                     log::error!("[pkarr] failed to publish org update: {}", e);
                 }
             }
         }
 
-        Ok(())
+        Ok(gossip_bytes)
     })
 }
 
@@ -1455,13 +1465,13 @@ pub fn create_event(
     location_room_id: Option<String>,
     start_at: i64,
     end_at: Option<i64>,
-) -> Result<String, CoreError> {
+) -> Result<SendResult, CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
         let pool = &core.read_pool;
         let now = now_micros();
 
-        let op_hash = {
+        let (op_hash, gossip_bytes) = {
             let mut op_store = core.op_store.lock().await;
             ops::publish(
                 &mut op_store,
@@ -1479,7 +1489,7 @@ pub fn create_event(
                     end_at,
                 },
             )
-            .await?.0
+            .await?
         };
 
         let event_id = op_hash.to_hex();
@@ -1503,7 +1513,7 @@ pub fn create_event(
         )
         .await?;
 
-        Ok(event_id)
+        Ok(SendResult { id: event_id, op_bytes: gossip_bytes })
     })
 }
 
@@ -1517,7 +1527,7 @@ pub fn update_event(
     location_room_id: Option<String>,
     start_at: Option<i64>,
     end_at: Option<i64>,
-) -> Result<(), CoreError> {
+) -> Result<Vec<u8>, CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
         let pool = &core.read_pool;
@@ -1538,9 +1548,9 @@ pub fn update_event(
         let payload = ops::encode_cbor(&update_op)
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
 
-        {
+        let gossip_bytes = {
             let mut store_guard = core.op_store.lock().await;
-            ops::sign_and_store_op(
+            let (_op_hash, gossip_bytes) = ops::sign_and_store_op(
                 &mut *store_guard,
                 &core.private_key,
                 ops::log_ids::EVENT,
@@ -1548,7 +1558,8 @@ pub fn update_event(
             )
             .await
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
-        }
+            gossip_bytes
+        };
 
         db::update_event(
             pool,
@@ -1563,11 +1574,11 @@ pub fn update_event(
         )
         .await?;
 
-        Ok(())
+        Ok(gossip_bytes)
     })
 }
 
-pub fn delete_event(org_id: String, event_id: String) -> Result<(), CoreError> {
+pub fn delete_event(org_id: String, event_id: String) -> Result<Vec<u8>, CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
         let pool = &core.read_pool;
@@ -1581,9 +1592,9 @@ pub fn delete_event(org_id: String, event_id: String) -> Result<(), CoreError> {
         let payload = ops::encode_cbor(&delete_op)
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
 
-        {
+        let gossip_bytes = {
             let mut store_guard = core.op_store.lock().await;
-            ops::sign_and_store_op(
+            let (_op_hash, gossip_bytes) = ops::sign_and_store_op(
                 &mut *store_guard,
                 &core.private_key,
                 ops::log_ids::EVENT,
@@ -1591,10 +1602,11 @@ pub fn delete_event(org_id: String, event_id: String) -> Result<(), CoreError> {
             )
             .await
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
-        }
+            gossip_bytes
+        };
 
         db::delete_event(pool, &event_id).await?;
-        Ok(())
+        Ok(gossip_bytes)
     })
 }
 
@@ -1613,7 +1625,7 @@ pub fn list_events(org_id: String) -> Vec<Event> {
     })
 }
 
-pub fn set_event_rsvp(event_id: String, status: String) -> Result<(), CoreError> {
+pub fn set_event_rsvp(event_id: String, status: String) -> Result<Vec<u8>, CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
         let pool = &core.read_pool;
@@ -1628,9 +1640,9 @@ pub fn set_event_rsvp(event_id: String, status: String) -> Result<(), CoreError>
         let payload = ops::encode_cbor(&op)
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
 
-        {
+        let gossip_bytes = {
             let mut store_guard = core.op_store.lock().await;
-            ops::sign_and_store_op(
+            let (_op_hash, gossip_bytes) = ops::sign_and_store_op(
                 &mut *store_guard,
                 &core.private_key,
                 ops::log_ids::EVENT_RSVP,
@@ -1638,14 +1650,15 @@ pub fn set_event_rsvp(event_id: String, status: String) -> Result<(), CoreError>
             )
             .await
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
-        }
+            gossip_bytes
+        };
 
         db::upsert_event_rsvp(pool, &event_id, &core.public_key_hex, &status, now).await?;
-        Ok(())
+        Ok(gossip_bytes)
     })
 }
 
-pub fn clear_event_rsvp(event_id: String) -> Result<(), CoreError> {
+pub fn clear_event_rsvp(event_id: String) -> Result<Vec<u8>, CoreError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(CoreError::NotInitialised)?;
         let pool = &core.read_pool;
@@ -1659,9 +1672,9 @@ pub fn clear_event_rsvp(event_id: String) -> Result<(), CoreError> {
         let payload = ops::encode_cbor(&op)
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
 
-        {
+        let gossip_bytes = {
             let mut store_guard = core.op_store.lock().await;
-            ops::sign_and_store_op(
+            let (_op_hash, gossip_bytes) = ops::sign_and_store_op(
                 &mut *store_guard,
                 &core.private_key,
                 ops::log_ids::EVENT_RSVP,
@@ -1669,10 +1682,11 @@ pub fn clear_event_rsvp(event_id: String) -> Result<(), CoreError> {
             )
             .await
             .map_err(|e| CoreError::OpsError(e.to_string()))?;
-        }
+            gossip_bytes
+        };
 
         db::delete_event_rsvp(pool, &event_id, &core.public_key_hex).await?;
-        Ok(())
+        Ok(gossip_bytes)
     })
 }
 
@@ -2714,7 +2728,7 @@ pub fn set_org_cooldown(org_id: String, cooldown_secs: i64) -> Result<(), CoreEr
         None,
         Some(cooldown_secs),
         None,
-    )
+    ).map(|_| ())
 }
 
 /// Set channel cooldown (slow mode) in seconds. Requires Manage-level permission.

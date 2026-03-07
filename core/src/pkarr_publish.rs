@@ -10,6 +10,7 @@ use sqlx::{Row, SqlitePool};
 use tokio::time::interval;
 
 use crate::store::get_core;
+use crate::sync_config;
 
 const PKARR_REPUBLISH_INTERVAL_SECS: u64 = 3000; // 50 minutes
 const DNS_TTL: u32 = 7200; // 2 hours
@@ -39,6 +40,7 @@ fn build_user_txt_record(
     bio: Option<&str>,
     avatar_blob_id: Option<&str>,
     relay_z32: Option<&str>,
+    email_enabled: bool,
 ) -> String {
     let mut parts = vec![
         "v=gardens1".to_string(),
@@ -66,6 +68,10 @@ fn build_user_txt_record(
         parts.push(format!("rl={}", relay));
     }
 
+    if email_enabled {
+        parts.push("email=1".to_string());
+    }
+
     parts.join(";")
 }
 
@@ -77,6 +83,7 @@ fn build_org_txt_record(
     avatar_blob_id: Option<&str>,
     cover_blob_id: Option<&str>,
     relay_z32: Option<&str>,
+    email_enabled: bool,
 ) -> String {
     let mut parts = vec![
         "v=gardens1".to_string(),
@@ -108,6 +115,10 @@ fn build_org_txt_record(
         parts.push(format!("rl={}", relay));
     }
 
+    if email_enabled {
+        parts.push("email=1".to_string());
+    }
+
     parts.join(";")
 }
 
@@ -118,6 +129,7 @@ pub async fn publish_profile(
     bio: Option<&str>,
     avatar_blob_id: Option<&str>,
     relay_z32: Option<&str>,
+    email_enabled: bool,
 ) -> Result<(), String> {
     let pk_bytes = hex::decode(private_key_hex).map_err(|e| format!("invalid hex: {}", e))?;
     let pk_arr: [u8; 32] = pk_bytes.as_slice().try_into()
@@ -125,7 +137,7 @@ pub async fn publish_profile(
 
     let keypair = Keypair::from_secret_key(&pk_arr);
 
-    let txt_value = build_user_txt_record(username, bio, avatar_blob_id, relay_z32);
+    let txt_value = build_user_txt_record(username, bio, avatar_blob_id, relay_z32, email_enabled);
 
     let txt = pkarr::dns::rdata::TXT::try_from(txt_value.as_str())
         .map_err(|e| format!("invalid txt: {}", e))?;
@@ -162,7 +174,7 @@ pub async fn publish_org(
     avatar_blob_id: Option<&str>,
     cover_blob_id: Option<&str>,
 ) -> Result<(), String> {
-    publish_org_with_key(private_key_hex, org_id, name, description, avatar_blob_id, cover_blob_id, None).await
+    publish_org_with_key(private_key_hex, org_id, name, description, avatar_blob_id, cover_blob_id, None, false).await
 }
 
 /// Publish an org profile to the pkarr DHT using the org's own key.
@@ -175,6 +187,7 @@ pub async fn publish_org_with_key(
     avatar_blob_id: Option<&str>,
     cover_blob_id: Option<&str>,
     relay_z32: Option<&str>,
+    email_enabled: bool,
 ) -> Result<(), String> {
     let pk_bytes = hex::decode(private_key_hex).map_err(|e| format!("invalid hex: {}", e))?;
     let pk_arr: [u8; 32] = pk_bytes.as_slice().try_into()
@@ -182,7 +195,7 @@ pub async fn publish_org_with_key(
 
     let keypair = Keypair::from_secret_key(&pk_arr);
 
-    let txt_value = build_org_txt_record(name, description, avatar_blob_id, cover_blob_id, relay_z32);
+    let txt_value = build_org_txt_record(name, description, avatar_blob_id, cover_blob_id, relay_z32, email_enabled);
 
     let txt = pkarr::dns::rdata::TXT::try_from(txt_value.as_str())
         .map_err(|e| format!("invalid txt: {}", e))?;
@@ -361,10 +374,23 @@ mod tests {
         assert_eq!(record.username.as_deref(), Some("alice"));
         assert_eq!(record.bio.as_deref(), Some("hello"));
     }
+
+    #[test]
+    fn user_txt_record_includes_relay_when_some() {
+        let record = build_user_txt_record("alice", None, None, Some("abc123relay"), false);
+        assert!(record.ends_with(";rl=abc123relay"), "expected rl= at end, got: {}", record);
+    }
+
+    #[test]
+    fn user_txt_record_omits_relay_when_none() {
+        let record = build_user_txt_record("alice", None, None, None, false);
+        assert!(!record.contains("rl="), "expected no rl= field, got: {}", record);
+    }
 }
 
 /// Republish all public profiles and orgs.
 async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
+    let relay_z32 = sync_config::get_relay_z32();
     let Some(core) = get_core() else {
         return Ok(());
     };
@@ -389,7 +415,7 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
         let bio: Option<String> = row.get("bio");
         let avatar: Option<String> = row.get("avatar_blob_id");
 
-        if let Err(e) = publish_profile(&private_key_hex, &username, bio.as_deref(), avatar.as_deref(), None).await {
+        if let Err(e) = publish_profile(&private_key_hex, &username, bio.as_deref(), avatar.as_deref(), relay_z32.as_deref(), false).await {
             log::error!("[pkarr] failed to republish profile {}: {}", public_key, e);
         }
     }
@@ -425,7 +451,8 @@ async fn republish_all(read_pool: &SqlitePool) -> Result<(), String> {
                     description.as_deref(),
                     avatar.as_deref(),
                     cover.as_deref(),
-                    None,
+                    relay_z32.as_deref(),
+                    false,
                 ).await {
                     log::error!("[pkarr] failed to republish org {}: {}", org_id, e);
                 }
