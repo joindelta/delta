@@ -162,6 +162,16 @@ namespace gardens_core {
 
     sequence<OrgSummary> search_public_orgs(string query);
 
+    // ── Email ──────────────────────────────────────────────────────────────
+    [Throws=CoreError]
+    string prepare_outbound_email(
+        string to,
+        string subject,
+        string body_text,
+        string? body_html,
+        string? reply_to_message_id
+    );
+
     // ── pkarr public profiles ─────────────────────────────────────────────────
     [Throws=CoreError]
     string get_pkarr_url(string public_key_hex);

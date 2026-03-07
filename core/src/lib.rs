@@ -3058,6 +3058,82 @@ pub fn accept_org_transfer(
     })
 }
 
+// ── Email ─────────────────────────────────────────────────────────────────────
+
+/// Build a signed JSON payload for an outbound email.
+/// Returns a JSON string with `signed_payload` (the serialised envelope) and
+/// `signature` (base64-encoded Ed25519 signature over the payload bytes).
+pub fn prepare_outbound_email(
+    to: String,
+    subject: String,
+    body_text: String,
+    body_html: Option<String>,
+    reply_to_message_id: Option<String>,
+) -> Result<String, CoreError> {
+    use ed25519_dalek::Signer as _;
+
+    let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+
+    // Decode the p2panda private key into a 32-byte array.
+    let private_key_bytes: [u8; 32] = hex::decode(core.private_key.to_hex())
+        .map_err(|e| CoreError::InvalidInput(e.to_string()))?
+        .try_into()
+        .map_err(|_| CoreError::InvalidInput("invalid key length".into()))?;
+
+    // Derive the pkarr z32 address (same mechanism as pkarr_publish).
+    let pkarr_keypair = pkarr::Keypair::from_secret_key(&private_key_bytes);
+    let from_z32 = pkarr_keypair.to_z32();
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| CoreError::InvalidInput(e.to_string()))?
+        .as_millis() as i64;
+
+    let payload = serde_json::json!({
+        "from_z32": from_z32,
+        "to": to,
+        "subject": subject,
+        "body_text": body_text,
+        "body_html": body_html,
+        "reply_to_message_id": reply_to_message_id,
+        "timestamp": timestamp,
+    });
+    let payload_str = payload.to_string();
+
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key_bytes);
+    let signature = signing_key.sign(payload_str.as_bytes());
+    let signature_b64 = general_purpose::STANDARD.encode(signature.to_bytes());
+
+    Ok(serde_json::json!({
+        "signed_payload": payload_str,
+        "signature": signature_b64,
+    })
+    .to_string())
+}
+
+#[cfg(test)]
+mod email_tests {
+    /// Full integration test requires an initialised core; mark ignored so CI
+    /// doesn't fail without one.  Run with `cargo test -- --ignored` after
+    /// calling `init_core`.
+    #[test]
+    #[ignore]
+    fn prepare_outbound_email_returns_valid_json() {
+        let result = super::prepare_outbound_email(
+            "recipient@example.com".into(),
+            "Hello".into(),
+            "Body text".into(),
+            None,
+            None,
+        );
+        let json_str = result.expect("prepare_outbound_email should succeed");
+        let v: serde_json::Value =
+            serde_json::from_str(&json_str).expect("result must be valid JSON");
+        assert!(v.get("signed_payload").is_some(), "missing signed_payload");
+        assert!(v.get("signature").is_some(), "missing signature");
+    }
+}
+
 // ── Helper: Encrypt/decrypt org private keys ─────────────────────────────────
 
 use base64::{engine::general_purpose, Engine as _};
