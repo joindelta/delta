@@ -82,21 +82,24 @@ export const useMessagesStore = create<MessagesState>((set) => ({
             avatarBlobId: data.avatarBlobId ?? null,
           });
           // Hydrate in-memory profile cache immediately
-          useProfileStore.setState(s => ({
-            profileCache: {
-              ...s.profileCache,
-              [pm.authorKey]: {
-                publicKey: pm.authorKey,
-                username: data.username!,
-                avatarBlobId: data.avatarBlobId ?? null,
-                bio: null,
-                availableFor: [],
-                isPublic: false,
-                createdAt: pm.timestamp,
-                updatedAt: pm.timestamp,
+          useProfileStore.setState(s => {
+            if (s.profileCache[pm.authorKey]) return s; // don't overwrite authoritative data
+            return {
+              profileCache: {
+                ...s.profileCache,
+                [pm.authorKey]: {
+                  publicKey: pm.authorKey,
+                  username: data.username!,
+                  avatarBlobId: data.avatarBlobId ?? null,
+                  bio: null,
+                  availableFor: [],
+                  isPublic: false,
+                  createdAt: pm.timestamp,
+                  updatedAt: pm.timestamp,
+                },
               },
-            },
-          }));
+            };
+          });
         }
       } catch {
         // malformed profile message — ignore
@@ -106,7 +109,7 @@ export const useMessagesStore = create<MessagesState>((set) => ({
     // Oldest-first for display.
     set(s => ({ messages: { ...s.messages, [key]: [...visibleMsgs].reverse() as Message[] } }));
 
-    const messageIds = msgs.map(m => m.messageId);
+    const messageIds = visibleMsgs.map(m => m.messageId);
     if (messageIds.length > 0) {
       const reactions = await listReactions(messageIds);
       const grouped: Record<string, Reaction[]> = {};
