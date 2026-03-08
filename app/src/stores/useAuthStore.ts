@@ -72,9 +72,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   async createAccount() {
     const kp = await generateKeypair();
     await persistKeypair(kp);
+    await AsyncStorage.setItem(HAS_ACCOUNT_KEY, 'true');
     await initCore(kp.privateKeyHex);
     await initNetwork(null);
-    await AsyncStorage.setItem(HAS_ACCOUNT_KEY, 'true');
     set({ keypair: kp, isUnlocked: true, hasStoredKey: true });
     return kp;
   },
@@ -82,9 +82,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   async importAccount(words: string[]) {
     const kp = await importFromMnemonic(words);
     await persistKeypair(kp);
+    await AsyncStorage.setItem(HAS_ACCOUNT_KEY, 'true');
     await initCore(kp.privateKeyHex);
     await initNetwork(null);
-    await AsyncStorage.setItem(HAS_ACCOUNT_KEY, 'true');
     set({ keypair: kp, isUnlocked: true, hasStoredKey: true });
     return kp;
   },
