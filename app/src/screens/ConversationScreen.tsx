@@ -268,8 +268,9 @@ export function ConversationScreen({ route, navigation }: Props) {
             const replyToUsername = replyToMsg
               ? (replyProfile?.username ?? replyToMsg.authorKey.slice(0, 8))
               : null;
-            const replyToPreview = replyToMsg && replyToUsername ? {
-              username: replyToUsername,
+            // replyToUsername is always non-null when replyToMsg is set (authorKey fallback guarantees it)
+            const replyToPreview = replyToMsg ? {
+              username: replyToUsername!,
               isDeleted: replyToMsg.isDeleted,
               text: replyToMsg.textContent
                 ?? (replyToMsg.contentType === 'image' ? 'Image'
