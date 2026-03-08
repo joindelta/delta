@@ -104,8 +104,10 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
 
     // 4. pkarr network resolution (public profiles only)
     try {
+      // getPkarrUrl can throw synchronously if the native module is unavailable —
+      // the surrounding try/catch covers both this and the async resolvePkarr call.
       const pkarrUrl = getPkarrUrl(publicKey); // returns "pk:<z32>"
-      const z32 = pkarrUrl.replace('pk:', '');
+      const z32 = pkarrUrl.startsWith('pk:') ? pkarrUrl.slice(3) : pkarrUrl;
       const resolved = await resolvePkarr(z32);
       if (resolved?.username) {
         const p: Profile = {
