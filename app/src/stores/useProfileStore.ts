@@ -5,9 +5,11 @@ import {
   getProfile,
   getBlob,
   getPkarrUrl,
+  resolvePkarr,
   createOrUpdateProfile as dcCreateOrUpdateProfile,
   type Profile,
 } from '../ffi/gardensCore';
+import { getDmProfile } from './useDmProfileStore';
 
 export type { Profile };
 
@@ -72,13 +74,58 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   },
 
   async fetchProfile(publicKey: string) {
+    // 1. In-memory cache
     const cached = get().profileCache[publicKey];
     if (cached) return cached;
+
+    // 2. AsyncStorage KV (profiles exchanged via DM channel)
+    const dm = await getDmProfile(publicKey);
+    if (dm) {
+      const profile: Profile = {
+        publicKey: dm.publicKey,
+        username: dm.username,
+        avatarBlobId: dm.avatarBlobId,
+        bio: null,
+        availableFor: [],
+        isPublic: false,
+        createdAt: dm.cachedAt,
+        updatedAt: dm.cachedAt,
+      };
+      set(s => ({ profileCache: { ...s.profileCache, [publicKey]: profile } }));
+      return profile;
+    }
+
+    // 3. Native local store (org members, previously synced profiles)
     const profile = await getProfile(publicKey);
     if (profile) {
       set(s => ({ profileCache: { ...s.profileCache, [publicKey]: profile } }));
+      return profile;
     }
-    return profile ?? null;
+
+    // 4. pkarr network resolution (public profiles only)
+    try {
+      const pkarrUrl = getPkarrUrl(publicKey); // returns "pk:<z32>"
+      const z32 = pkarrUrl.replace('pk:', '');
+      const resolved = await resolvePkarr(z32);
+      if (resolved?.username) {
+        const p: Profile = {
+          publicKey,
+          username: resolved.username,
+          avatarBlobId: resolved.avatarBlobId ?? null,
+          bio: resolved.bio ?? null,
+          availableFor: [],
+          isPublic: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        set(s => ({ profileCache: { ...s.profileCache, [publicKey]: p } }));
+        return p;
+      }
+    } catch {
+      // pkarr unavailable or no public profile — not an error
+    }
+
+    return null;
   },
 
   async createOrUpdateProfile(username, bio, availableFor, isPublic = false, avatarBlobId = null, emailEnabled = false) {
