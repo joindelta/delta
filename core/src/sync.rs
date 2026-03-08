@@ -2,7 +2,8 @@
 //!
 //! React Native manages the WebSocket connection. When an op arrives,
 //! RN calls `ingest_op(topic_hex, seq, op_bytes)` which inserts it into
-//! the GardensStore. The projector picks it up within 500ms.
+//! the GardensStore and immediately runs a projector tick so the read
+//! model is up-to-date before JS increments opTick and calls list_messages.
 
 use crate::ops::{decode_cbor, GossipEnvelope};
 use crate::store::get_core;
@@ -55,6 +56,21 @@ pub async fn ingest_op(topic_hex: &str, seq: i64, op_bytes: &[u8]) -> Result<(),
     crate::db::set_topic_seq(&core.read_pool, topic_hex, seq)
         .await
         .map_err(|e| SyncError(format!("seq: {e}")))?;
+
+    eprintln!(
+        "[sync] ingest_op OK topic={} seq={} log_id={} author={}",
+        &topic_hex[..topic_hex.len().min(16)],
+        seq,
+        env.log_id,
+        header.public_key.to_hex().chars().take(16).collect::<String>(),
+    );
+
+    // Eagerly project the ingested op into the read model so that JS
+    // can call list_messages / list_dm_threads immediately after opTick
+    // increments without waiting for the 500ms polling cycle.
+    if let Err(e) = crate::projector::project_tick(&core.read_pool).await {
+        eprintln!("[sync] eager project_tick failed: {e}");
+    }
 
     Ok(())
 }

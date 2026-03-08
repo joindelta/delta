@@ -649,6 +649,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_gardens_core_checksum_func_change_member_permission(
     ): Short
+    external fun uniffi_gardens_core_checksum_func_claim_invite_token(
+    ): Short
     external fun uniffi_gardens_core_checksum_func_clear_event_rsvp(
     ): Short
     external fun uniffi_gardens_core_checksum_func_create_dm_thread(
@@ -660,6 +662,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_gardens_core_checksum_func_create_org(
     ): Short
     external fun uniffi_gardens_core_checksum_func_create_room(
+    ): Short
+    external fun uniffi_gardens_core_checksum_func_delete_conversation(
     ): Short
     external fun uniffi_gardens_core_checksum_func_delete_event(
     ): Short
@@ -710,6 +714,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_gardens_core_checksum_func_is_network_initialized(
     ): Short
     external fun uniffi_gardens_core_checksum_func_kick_member(
+    ): Short
+    external fun uniffi_gardens_core_checksum_func_leave_org(
     ): Short
     external fun uniffi_gardens_core_checksum_func_list_dm_threads(
     ): Short
@@ -797,7 +803,7 @@ internal object UniffiLib {
     external fun uniffi_gardens_core_fn_func_accept_org_transfer(`orgId`: RustBuffer.ByValue,`transferPayloadBase64`: RustBuffer.ByValue,`previousOwnerPubkeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_gardens_core_fn_func_add_member_direct(`orgId`: RustBuffer.ByValue,`memberPublicKey`: RustBuffer.ByValue,`accessLevel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): Unit
+): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_add_reaction(`messageId`: RustBuffer.ByValue,`emoji`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_archive_room(`orgId`: RustBuffer.ByValue,`roomId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -808,6 +814,8 @@ external fun uniffi_gardens_core_fn_func_build_onion_packet(`hops`: RustBuffer.B
 ): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_change_member_permission(`orgId`: RustBuffer.ByValue,`memberPublicKey`: RustBuffer.ByValue,`newAccessLevel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_gardens_core_fn_func_claim_invite_token(`tokenBase64`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_clear_event_rsvp(`eventId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_create_dm_thread(`recipientKey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -819,6 +827,8 @@ external fun uniffi_gardens_core_fn_func_create_or_update_profile(`username`: Ru
 external fun uniffi_gardens_core_fn_func_create_org(`name`: RustBuffer.ByValue,`typeLabel`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`isPublic`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_create_room(`orgId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_gardens_core_fn_func_delete_conversation(`threadId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_delete_event(`orgId`: RustBuffer.ByValue,`eventId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -870,6 +880,8 @@ external fun uniffi_gardens_core_fn_func_is_network_initialized(uniffi_out_err: 
 ): Byte
 external fun uniffi_gardens_core_fn_func_kick_member(`orgId`: RustBuffer.ByValue,`memberPublicKey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_gardens_core_fn_func_leave_org(`orgId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_list_dm_threads(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_gardens_core_fn_func_list_event_rsvps(`eventId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1062,7 +1074,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_gardens_core_checksum_func_accept_org_transfer() != 22375.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_gardens_core_checksum_func_add_member_direct() != 48254.toShort()) {
+    if (lib.uniffi_gardens_core_checksum_func_add_member_direct() != 43120.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_gardens_core_checksum_func_add_reaction() != 28587.toShort()) {
@@ -1078,6 +1090,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_gardens_core_checksum_func_change_member_permission() != 1932.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_gardens_core_checksum_func_claim_invite_token() != 21005.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_gardens_core_checksum_func_clear_event_rsvp() != 49452.toShort()) {
@@ -1096,6 +1111,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_gardens_core_checksum_func_create_room() != 23845.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_gardens_core_checksum_func_delete_conversation() != 39397.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_gardens_core_checksum_func_delete_event() != 3326.toShort()) {
@@ -1171,6 +1189,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_gardens_core_checksum_func_kick_member() != 54535.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_gardens_core_checksum_func_leave_org() != 8695.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_gardens_core_checksum_func_list_dm_threads() != 4384.toShort()) {
@@ -3627,14 +3648,15 @@ public object FfiConverterSequenceTypeSyncHopFfi: FfiConverterRustBuffer<List<Sy
     
     
 
-    @Throws(AuthException::class) fun `addMemberDirect`(`orgId`: kotlin.String, `memberPublicKey`: kotlin.String, `accessLevel`: kotlin.String)
-        = 
+    @Throws(AuthException::class) fun `addMemberDirect`(`orgId`: kotlin.String, `memberPublicKey`: kotlin.String, `accessLevel`: kotlin.String): SendResult {
+            return FfiConverterTypeSendResult.lift(
     uniffiRustCallWithError(AuthException) { _status ->
     UniffiLib.uniffi_gardens_core_fn_func_add_member_direct(
     
         FfiConverterString.lower(`orgId`),FfiConverterString.lower(`memberPublicKey`),FfiConverterString.lower(`accessLevel`),_status)
 }
-    
+    )
+    }
     
 
     @Throws(CoreException::class) fun `addReaction`(`messageId`: kotlin.String, `emoji`: kotlin.String): SendResult {
@@ -3687,6 +3709,17 @@ public object FfiConverterSequenceTypeSyncHopFfi: FfiConverterRustBuffer<List<Sy
         FfiConverterString.lower(`orgId`),FfiConverterString.lower(`memberPublicKey`),FfiConverterString.lower(`newAccessLevel`),_status)
 }
     
+    
+
+    @Throws(AuthException::class) fun `claimInviteToken`(`tokenBase64`: kotlin.String): SendResult {
+            return FfiConverterTypeSendResult.lift(
+    uniffiRustCallWithError(AuthException) { _status ->
+    UniffiLib.uniffi_gardens_core_fn_func_claim_invite_token(
+    
+        FfiConverterString.lower(`tokenBase64`),_status)
+}
+    )
+    }
     
 
     @Throws(CoreException::class) fun `clearEventRsvp`(`eventId`: kotlin.String): kotlin.ByteArray {
@@ -3749,6 +3782,17 @@ public object FfiConverterSequenceTypeSyncHopFfi: FfiConverterRustBuffer<List<Sy
     UniffiLib.uniffi_gardens_core_fn_func_create_room(
     
         FfiConverterString.lower(`orgId`),FfiConverterString.lower(`name`),_status)
+}
+    )
+    }
+    
+
+    @Throws(CoreException::class) fun `deleteConversation`(`threadId`: kotlin.String): SendResult {
+            return FfiConverterTypeSendResult.lift(
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_gardens_core_fn_func_delete_conversation(
+    
+        FfiConverterString.lower(`threadId`),_status)
 }
     )
     }
@@ -4034,6 +4078,17 @@ public object FfiConverterSequenceTypeSyncHopFfi: FfiConverterRustBuffer<List<Sy
         FfiConverterString.lower(`orgId`),FfiConverterString.lower(`memberPublicKey`),_status)
 }
     
+    
+
+    @Throws(CoreException::class) fun `leaveOrg`(`orgId`: kotlin.String): SendResult {
+            return FfiConverterTypeSendResult.lift(
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_gardens_core_fn_func_leave_org(
+    
+        FfiConverterString.lower(`orgId`),_status)
+}
+    )
+    }
     
  fun `listDmThreads`(): List<DmThread> {
             return FfiConverterSequenceTypeDmThread.lift(

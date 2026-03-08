@@ -15,7 +15,25 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+allprojects {
+    repositories {
+        // Serve app.notifee artifacts exclusively from the locally bundled Maven repo,
+        // preventing Gradle from querying JitPack for this group.
+        exclusiveContent {
+            forRepository {
+                maven {
+                    url "${rootDir}/../node_modules/@notifee/react-native/android/libs"
+                }
+            }
+            filter {
+                includeGroup "app.notifee"
+            }
+        }
+    }
+}

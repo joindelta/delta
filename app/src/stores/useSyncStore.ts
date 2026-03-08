@@ -10,8 +10,24 @@
 import { create } from 'zustand';
 import { ingestOp, getTopicSeq } from '../ffi/gardensCore';
 import { ingestEmailOp } from './useInboxStore';
+import { blake3 } from '@noble/hashes/blake3';
 
 export const DEFAULT_SYNC_URL = 'https://gardens-sync.stereos.workers.dev';
+
+/** Derive the personal inbox topic for a given public key hex. */
+export function deriveInboxTopicHex(pubkeyHex: string): string {
+  const bytes = new Uint8Array(
+    pubkeyHex.match(/.{2}/g)!.map((b) => parseInt(b, 16))
+  );
+  const suffix = new TextEncoder().encode('gardens:inbox:v1');
+  const input = new Uint8Array(bytes.length + suffix.length);
+  input.set(bytes);
+  input.set(suffix, bytes.length);
+  const hash = blake3(input);
+  return Array.from(hash)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 /** Post a p2panda op to the sync worker for a given topic. Fire-and-forget. */
 export function broadcastOp(topicHex: string, opBytes: Uint8Array, syncUrl = DEFAULT_SYNC_URL): void {
@@ -59,6 +75,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         m === 'https://' ? 'wss://' : 'ws://'
       );
       const ws = new WebSocket(`${wsUrl}/topic/${topicHex}?since=${since}`);
+      console.log(`[sync] subscribed topic=${topicHex.slice(0, 16)}… since=${since}`);
 
       ws.onmessage = async (event: MessageEvent) => {
         try {
@@ -68,10 +85,16 @@ export const useSyncStore = create<SyncState>((set, get) => ({
             data?: string;
           };
           if (msg.type === 'op' && msg.seq != null && msg.data) {
+            console.log(`[sync] op received on topic ${topicHex.slice(0, 16)}… seq=${msg.seq} bytes=${msg.data.length}`);
             const binary = atob(msg.data);
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            await ingestOp(topicHex, msg.seq, bytes);
+            try {
+              await ingestOp(topicHex, msg.seq, bytes);
+              console.log(`[sync] ingestOp OK topic=${topicHex.slice(0, 16)}… seq=${msg.seq}`);
+            } catch (ingestErr) {
+              console.warn(`[sync] ingestOp FAILED topic=${topicHex.slice(0, 16)}… seq=${msg.seq}`, ingestErr);
+            }
             try {
               const decoded = atob(msg.data);
               const parsed = JSON.parse(decoded);
@@ -83,8 +106,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
             }
             set((s) => ({ opTick: s.opTick + 1 }));
           }
-        } catch {
-          // ignore decode/ingest errors
+        } catch (outerErr) {
+          console.warn('[sync] onmessage parse error', outerErr);
         }
       };
 

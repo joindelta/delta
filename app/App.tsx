@@ -6,6 +6,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SheetProvider } from 'react-native-actions-sheet';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import './src/sheets';
+import { setupBackgroundHandler } from './src/services/pushNotifications';
+
+setupBackgroundHandler();
 
 export default function App() {
   return (

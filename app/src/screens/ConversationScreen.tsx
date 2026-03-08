@@ -15,24 +15,33 @@ import { MessageComposer } from '../components/MessageComposer';
 import { extractMentions } from '../components/MessageText';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { useProfileStore } from '../stores/useProfileStore';
+import { sendDMPushNotification } from '../services/pushNotifications';
+import { useSyncStore } from '../stores/useSyncStore';
 
-type Props = NativeStackScreenProps<any, 'DMChat'>;
+type Props = NativeStackScreenProps<any, 'Conversation'>;
 
-export function DMChatScreen({ route }: Props) {
+export function ConversationScreen({ route, navigation }: Props) {
   const { threadId, recipientKey } = route.params as { threadId: string; recipientKey: string };
   const { messages, fetchMessages, sendMessage, deleteMessage } = useMessagesStore();
   const { myProfile, profileCache, fetchProfile } = useProfileStore();
+  const { subscribe, unsubscribe, opTick } = useSyncStore();
   const [loading, setLoading] = useState(true);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const contextKey = threadId;
   const messageList = messages[contextKey] || [];
+  const recipientProfile = profileCache[recipientKey];
 
   useEffect(() => {
     fetchProfile(recipientKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipientKey]);
+
+  useEffect(() => {
+    const title = recipientProfile?.username ?? recipientKey.slice(0, 10) + '…';
+    navigation.setOptions({ title });
+  }, [recipientProfile, recipientKey, navigation]);
 
   const mentionCandidates = useMemo(() => {
     const names = new Set<string>();
@@ -53,6 +62,18 @@ export function DMChatScreen({ route }: Props) {
       return () => {};
     }, [threadId]),
   );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      subscribe(threadId);
+      return () => unsubscribe(threadId);
+    }, [threadId, subscribe, unsubscribe]),
+  );
+
+  useEffect(() => {
+    if (!loading) fetchMessages(null, threadId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opTick]);
 
   async function loadMessages() {
     setLoading(true);
@@ -75,6 +96,9 @@ export function DMChatScreen({ route }: Props) {
         replyTo: replyingTo,
       });
       setReplyingTo(null);
+      const senderName = myProfile?.username ?? 'Someone';
+      const preview = text.length > 100 ? text.slice(0, 97) + '…' : text;
+      sendDMPushNotification({ senderName, recipientKey, threadId, preview });
       await loadMessages();
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
@@ -179,7 +203,7 @@ export function DMChatScreen({ route }: Props) {
         <View style={styles.empty}>
           <Text style={styles.emptyText}>No messages yet</Text>
           <Text style={styles.emptyHint}>
-            Start a conversation with {recipientKey.slice(0, 16)}...
+            Say hi to {recipientProfile?.username ?? recipientKey.slice(0, 10) + '…'}
           </Text>
         </View>
       ) : (

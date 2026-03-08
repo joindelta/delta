@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, Image, TextInput,
-  ActivityIndicator, StyleSheet, Share,
+  ActivityIndicator, StyleSheet, Share, Alert,
 } from 'react-native';
 import ActionSheet, { SheetManager, SheetProps } from 'react-native-actions-sheet';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronRight } from 'lucide-react-native';
 import { useOrgsStore } from '../stores/useOrgsStore';
-import { useDMStore } from '../stores/useDMStore';
+import { useConversationsStore } from '../stores/useConversationsStore';
 import { useProfileStore } from '../stores/useProfileStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import type { MainStackParamList } from '../navigation/RootNavigator';
@@ -19,7 +19,7 @@ type Mode = 'menu' | 'createOrg' | 'newDm';
 export function FabSheet(props: SheetProps<'fab-sheet'>) {
   const navigation = useNavigation<Nav>();
   const { createOrg, fetchMyOrgs } = useOrgsStore();
-  const { createThread } = useDMStore();
+  const { createConversation } = useConversationsStore();
   const { myProfile } = useProfileStore();
   const { keypair } = useAuthStore();
 
@@ -58,9 +58,11 @@ export function FabSheet(props: SheetProps<'fab-sheet'>) {
     if (!dmKey.trim()) return;
     setBusy(true);
     try {
-      const threadId = await createThread(dmKey.trim());
+      const threadId = await createConversation(dmKey.trim());
       close();
-      navigation.navigate('DMChat', { threadId, recipientKey: dmKey.trim() });
+      navigation.navigate('Conversation', { threadId, recipientKey: dmKey.trim() });
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to start DM');
     } finally {
       setBusy(false);
     }
@@ -78,15 +80,15 @@ export function FabSheet(props: SheetProps<'fab-sheet'>) {
       indicatorStyle={fs.handle}
       onBeforeShow={reset}
     >
-      {mode === 'menu' && (
+  {mode === 'menu' && (
         <ScrollView showsVerticalScrollIndicator={false}>
           <Text style={fs.title}>New</Text>
 
           <TouchableOpacity style={fs.row} onPress={() => setMode('newDm')}>
             <View style={fs.iconCircle}><Text style={fs.iconChar}>DM</Text></View>
             <View style={{ flex: 1 }}>
-              <Text style={fs.rowTitle}>New direct message</Text>
-              <Text style={fs.rowSub}>Chat with someone privately</Text>
+              <Text style={fs.rowTitle}>New conversation</Text>
+              <Text style={fs.rowSub}>Start a private chat</Text>
             </View>
             <ChevronRight size={16} color="#555" />
           </TouchableOpacity>
@@ -157,7 +159,7 @@ export function FabSheet(props: SheetProps<'fab-sheet'>) {
 
       {mode === 'newDm' && (
         <>
-          <Text style={fs.title}>New direct message</Text>
+          <Text style={fs.title}>New conversation</Text>
           <TextInput
             value={dmKey}
             onChangeText={setDmKey}

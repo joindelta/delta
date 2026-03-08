@@ -21,6 +21,7 @@ import { BLOB_CACHE_CONTROL, MAX_BLOB_BYTES } from './blob-constants';
 import PostalMime from 'postal-mime';
 import z32 from 'z32';
 import { buildMime, type OutboundEmailPayload } from './mime';
+import { EmailMessage } from 'cloudflare:email';
 
 export interface Env {
   RELAY_SEED_HEX: string;
@@ -28,7 +29,89 @@ export interface Env {
   PUBLIC_BLOBS: KVNamespace;
   SYNC_WORKER: Fetcher;
   RATE_LIMIT_KV: KVNamespace;
+  PUSH_TOKENS: KVNamespace;
+  FCM_PROJECT_ID: string;
+  FCM_CLIENT_EMAIL: string;
+  FCM_PRIVATE_KEY: string;
   EMAIL: { send(msg: unknown): Promise<void> };
+}
+
+// ── FCM v1 push helper ────────────────────────────────────────────────────────
+
+async function getFcmAccessToken(env: Env): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const encode = (obj: object) =>
+    btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+  const header = encode({ alg: 'RS256', typ: 'JWT' });
+  const payload = encode({
+    iss: env.FCM_CLIENT_EMAIL,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  });
+
+  const toSign = `${header}.${payload}`;
+
+  const pem = env.FCM_PRIVATE_KEY.replace(/\\n/g, '\n');
+  const keyData = pem
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\s/g, '');
+  const binaryKey = Uint8Array.from(atob(keyData), c => c.charCodeAt(0));
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8',
+    binaryKey,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+
+  const sig = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    new TextEncoder().encode(toSign),
+  );
+
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+  const jwt = `${toSign}.${sigB64}`;
+
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  });
+
+  const { access_token } = await resp.json() as { access_token: string };
+  return access_token;
+}
+
+async function sendPushNotification(
+  env: Env,
+  params: { token: string; title: string; body: string; data?: Record<string, string> },
+): Promise<void> {
+  const accessToken = await getFcmAccessToken(env);
+  await fetch(`https://fcm.googleapis.com/v1/projects/${env.FCM_PROJECT_ID}/messages:send`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      message: {
+        token: params.token,
+        notification: { title: params.title, body: params.body },
+        data: params.data ?? {},
+        android: { priority: 'high' },
+        apns: { payload: { aps: { sound: 'default' } } },
+      },
+    }),
+  });
 }
 
 
@@ -231,11 +314,68 @@ export default {
       // Build MIME and send
       const rawMime = buildMime(payload);
       const from = `${payload.from_z32}@${RELAY_DOMAIN}`;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const msg = new (globalThis as any).EmailMessage(from, payload.to, rawMime);
-      await env.EMAIL.send(msg);
+      const msg = new EmailMessage(from, payload.to, rawMime);
+      try {
+        await env.EMAIL.send(msg);
+      } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return new Response(`email send failed: ${detail}`, { status: 500 });
+      }
 
       return new Response(null, { status: 200 });
+    }
+
+    // ── POST /profile-meta/set — store discoverable profile metadata ───────────
+    if (request.method === 'POST' && url.pathname === '/profile-meta/set') {
+      const { publicKey, meta } = await request.json() as {
+        publicKey: string;
+        meta: { loco?: string; interests?: string[] };
+      };
+      if (!publicKey) return new Response('missing publicKey', { status: 400 });
+      const existing = await env.PUSH_TOKENS.get(`meta:${publicKey}`);
+      const current = existing ? JSON.parse(existing) : {};
+      const updated = { ...current, ...meta };
+      await env.PUSH_TOKENS.put(`meta:${publicKey}`, JSON.stringify(updated), {
+        expirationTtl: 60 * 60 * 24 * 365,
+      });
+      return new Response(null, { status: 204 });
+    }
+
+    // ── GET /profile-meta/:publicKey — fetch discoverable profile metadata ─────
+    if (request.method === 'GET' && url.pathname.startsWith('/profile-meta/')) {
+      const publicKey = url.pathname.slice('/profile-meta/'.length);
+      if (!publicKey) return new Response('missing key', { status: 400 });
+      const data = await env.PUSH_TOKENS.get(`meta:${publicKey}`);
+      if (!data) return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+      return new Response(data, { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ── POST /push/register — store FCM token for a public key ─────────────────
+    if (request.method === 'POST' && url.pathname === '/push/register') {
+      const { publicKey, token } = await request.json() as { publicKey: string; token: string };
+      if (!publicKey || !token) return new Response('missing fields', { status: 400 });
+      await env.PUSH_TOKENS.put(`push:${publicKey}`, token, { expirationTtl: 60 * 60 * 24 * 90 });
+      return new Response(null, { status: 204 });
+    }
+
+    // ── POST /push/notify — send push to one or more recipients ────────────────
+    if (request.method === 'POST' && url.pathname === '/push/notify') {
+      const { recipientKeys, title, body, data } = await request.json() as {
+        recipientKeys: string[];
+        title: string;
+        body: string;
+        data?: Record<string, string>;
+      };
+      if (!recipientKeys?.length || !title || !body) {
+        return new Response('missing fields', { status: 400 });
+      }
+      await Promise.all(
+        recipientKeys.map(async (key) => {
+          const token = await env.PUSH_TOKENS.get(`push:${key}`);
+          if (token) await sendPushNotification(env, { token, title, body, data });
+        }),
+      );
+      return new Response(null, { status: 204 });
     }
 
     return new Response('not found', { status: 404 });

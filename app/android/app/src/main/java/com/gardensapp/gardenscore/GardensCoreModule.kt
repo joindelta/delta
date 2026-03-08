@@ -788,9 +788,42 @@ class GardensCoreModule(private val reactContext: ReactApplicationContext) : Rea
           map.putString("recipientKey", t.recipientKey)
           map.putDouble("createdAt", t.createdAt.toDouble())
           t.lastMessageAt?.let { map.putDouble("lastMessageAt", it.toDouble()) } ?: map.putNull("lastMessageAt")
+          map.putBoolean("isRequest", t.isRequest)
           arr.pushMap(map)
         }
         promise.resolve(arr)
+      } catch (e: Exception) {
+        promise.reject("CoreError", e)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun deleteConversation(threadId: String, promise: Promise) {
+    ensureLoaded()
+    scope.launch {
+      try {
+        val result = uniffi.gardens_core.deleteConversation(threadId)
+        val map = Arguments.createMap()
+        map.putString("id", result.id)
+        map.putString("opBytesBase64", Base64.encodeToString(result.opBytes, Base64.DEFAULT))
+        promise.resolve(map)
+      } catch (e: Exception) {
+        promise.reject("CoreError", e)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun leaveOrg(orgId: String, promise: Promise) {
+    ensureLoaded()
+    scope.launch {
+      try {
+        val result = uniffi.gardens_core.leaveOrg(orgId)
+        val map = Arguments.createMap()
+        map.putString("id", result.id)
+        map.putString("opBytesBase64", Base64.encodeToString(result.opBytes, Base64.DEFAULT))
+        promise.resolve(map)
       } catch (e: Exception) {
         promise.reject("CoreError", e)
       }
@@ -833,8 +866,11 @@ class GardensCoreModule(private val reactContext: ReactApplicationContext) : Rea
     ensureLoaded()
     scope.launch {
       try {
-        uniffi.gardens_core.addMemberDirect(orgId, memberPublicKey, accessLevel)
-        promise.resolve(null)
+        val result = uniffi.gardens_core.addMemberDirect(orgId, memberPublicKey, accessLevel)
+        val map = Arguments.createMap()
+        map.putString("id", result.id)
+        map.putString("opBytesBase64", Base64.encodeToString(result.opBytes, Base64.DEFAULT))
+        promise.resolve(map)
       } catch (e: Exception) {
         promise.reject("AuthError", e)
       }
@@ -1045,6 +1081,28 @@ class GardensCoreModule(private val reactContext: ReactApplicationContext) : Rea
         promise.resolve(url)
       } catch (e: Exception) {
         promise.reject("SyncConfigError", e)
+      }
+    }
+  }
+
+  // ── Email ─────────────────────────────────────────────────────────────────────
+
+  @ReactMethod
+  fun prepareOutboundEmail(
+    to: String,
+    subject: String,
+    bodyText: String,
+    bodyHtml: String?,
+    replyToMessageId: String?,
+    promise: Promise,
+  ) {
+    ensureLoaded()
+    scope.launch {
+      try {
+        val json = uniffi.gardens_core.prepareOutboundEmail(to, subject, bodyText, bodyHtml, replyToMessageId)
+        promise.resolve(json)
+      } catch (e: Exception) {
+        promise.reject("EmailError", e)
       }
     }
   }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,15 @@ import {
   Share,
   Clipboard,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LOCATION_STORAGE_KEY, publishProfileMeta } from '../sheets/LocationPickerSheet';
 import { SheetManager } from 'react-native-actions-sheet';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/RootNavigator';
 import RNFS from 'react-native-fs';
 import { useOrgsStore } from '../stores/useOrgsStore';
+import { useProfileStore } from '../stores/useProfileStore';
+import { useAuthStore } from '../stores/useAuthStore';
 import { uploadBlob, getPkarrUrl, getPkarrUrlFromZ32, listOrgMembers, setOrgCooldown, setRoomCooldown, initNetwork, isNetworkInitialized } from '../ffi/gardensCore';
 import { BlobImage } from '../components/BlobImage';
 import { PublicIdentityCard } from '../components/PublicIdentityCard';
@@ -140,7 +144,9 @@ function ToggleRow({
 
 export function OrgSettingsScreen({ route, navigation }: Props) {
   const { orgId, orgName } = route.params;
-  const { orgs, rooms, updateOrg, fetchMyOrgs, fetchRooms, deleteOrg: deleteOrgFromStore } = useOrgsStore();
+  const { orgs, rooms, updateOrg, fetchMyOrgs, fetchRooms, deleteOrg: deleteOrgFromStore, leaveOrg } = useOrgsStore();
+  const { myProfile } = useProfileStore();
+  const { keypair } = useAuthStore();
 
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingIcon, setIsUploadingIcon] = useState(false);
@@ -158,12 +164,15 @@ export function OrgSettingsScreen({ route, navigation }: Props) {
   const [emojiBusy, setEmojiBusy] = useState(false);
   const [emojiStatus, setEmojiStatus] = useState<string | null>(null);
   const [deletingOrg, setDeletingOrg] = useState(false);
+  const [orgLocation, setOrgLocation] = useState<string | null>(null);
   const [orgCooldownDraft, setOrgCooldownDraft] = useState('');
   const [channelCooldowns, setChannelCooldowns] = useState<Record<string, string>>({});
 
   // Get current org data
   const org = orgs.find(o => o.orgId === orgId);
-  const orgRooms = rooms[orgId] || [];
+  const myKey = myProfile?.publicKey ?? keypair?.publicKeyHex ?? '';
+  const isCreator = !!org?.creatorKey && !!myKey && org.creatorKey === myKey;
+  const orgRooms = useMemo(() => rooms[orgId] ?? [], [rooms, orgId]);
   const emojiRoomId = orgRooms.find(r => r.name === 'general')?.roomId ?? orgRooms[0]?.roomId ?? null;
   const customEmojiList = parseCustomEmoji(org?.customEmojiJson);
 
@@ -198,6 +207,7 @@ export function OrgSettingsScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     fetchRooms(orgId).catch(() => {});
+    AsyncStorage.getItem(`${LOCATION_STORAGE_KEY}:org:${orgId}`).then(v => setOrgLocation(v)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
@@ -252,16 +262,19 @@ export function OrgSettingsScreen({ route, navigation }: Props) {
     }
   };
 
+  const GARDENS_BASE_URL = 'https://gardens.app';
+
   const handleShareCommunity = async () => {
     if (!pkarrUrl) {
       Alert.alert('Error', 'Public URL not available');
       return;
     }
-    
+    const z32Key = pkarrUrl.startsWith('pk:') ? pkarrUrl.slice(3) : pkarrUrl;
+    const webLink = `${GARDENS_BASE_URL}/pk/${z32Key}`;
     try {
       await Share.share({
-        message: `Join ${orgName} on Gardens: ${pkarrUrl}`,
-        url: pkarrUrl,
+        message: `Join ${orgName} on Gardens: ${webLink}`,
+        url: webLink,
       });
     } catch {
       // Share cancelled
@@ -357,6 +370,28 @@ export function OrgSettingsScreen({ route, navigation }: Props) {
                 },
               ]
             );
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLeaveOrg = () => {
+    Alert.alert(
+      'Leave Organization',
+      `Leave "${orgName}"? You will lose access to its rooms and messages.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await leaveOrg(orgId);
+              navigation.navigate('Home');
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to leave organization');
+            }
           },
         },
       ]
@@ -667,6 +702,21 @@ export function OrgSettingsScreen({ route, navigation }: Props) {
           </View>
         )}
         
+        <SettingsRow
+          label="Location"
+          description={orgLocation ?? 'Not set'}
+          onPress={() => {
+            SheetManager.show('location-picker-sheet');
+            setTimeout(async () => {
+              const loco = await AsyncStorage.getItem(LOCATION_STORAGE_KEY).catch(() => null);
+              if (!loco) return;
+              await AsyncStorage.setItem(`${LOCATION_STORAGE_KEY}:org:${orgId}`, loco);
+              setOrgLocation(loco);
+              const pubkey = org?.orgPubkey ?? org?.creatorKey;
+              if (pubkey) publishProfileMeta(pubkey, { loco });
+            }, 1000);
+          }}
+        />
         {isPublic && pkarrUrl && org && (
           <View style={s.cardContainer}>
             <PublicIdentityCard
@@ -851,23 +901,35 @@ export function OrgSettingsScreen({ route, navigation }: Props) {
       </Section>
 
       <Section title="Members">
-        <SettingsRow 
-          label="Roles & Permissions" 
+        <SettingsRow
+          label="Add Members"
+          description="Invite via NFC, QR code, or public key"
+          onPress={() => navigation.navigate('AddMember', { orgId, orgName })}
+        />
+        <SettingsRow
+          label="Roles & Permissions"
           description={`${memberCount} member${memberCount !== 1 ? 's' : ''}`}
           onPress={handleNavigateToMembers}
         />
-        <SettingsRow 
-          label="Bans & Restrictions" 
+        <SettingsRow
+          label="Bans & Restrictions"
           description="Manage banned users"
           onPress={handleNavigateToMembers}
         />
       </Section>
 
       <Section title="Danger Zone">
-        <TouchableOpacity style={s.dangerRow} onPress={handleDeleteOrg}>
-          <Text style={s.dangerLabel}>Delete Organization</Text>
-          <Text style={s.chevron}>›</Text>
-        </TouchableOpacity>
+        {isCreator ? (
+          <TouchableOpacity style={s.dangerRow} onPress={handleDeleteOrg}>
+            <Text style={s.dangerLabel}>Delete Organization</Text>
+            <Text style={s.chevron}>›</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={s.dangerRow} onPress={handleLeaveOrg}>
+            <Text style={s.dangerLabel}>Leave Organization</Text>
+            <Text style={s.chevron}>›</Text>
+          </TouchableOpacity>
+        )}
       </Section>
     </ScrollView>
   );

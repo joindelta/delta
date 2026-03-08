@@ -190,6 +190,12 @@ pub struct DmThreadOp {
     pub recipient_key: String, // hex public key
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeleteConversationOp {
+    pub op_type: String, // "delete_conversation"
+    pub thread_id: String,
+}
+
 // Phase 4 encryption op payloads
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeyBundleOp {

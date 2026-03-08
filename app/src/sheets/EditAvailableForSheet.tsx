@@ -12,21 +12,24 @@ import {
 import ActionSheet, { SheetManager, SheetProps } from 'react-native-actions-sheet';
 import { X, Plus, Trash2 } from 'lucide-react-native';
 import { useProfileStore } from '../stores/useProfileStore';
+import { useAuthStore } from '../stores/useAuthStore';
 import { createOrUpdateProfile } from '../ffi/gardensCore';
+import { publishProfileMeta } from './LocationPickerSheet';
 
 const SUGGESTED_TAGS = [
-  'Collaboration',
-  'Hiring',
-  'Consulting',
-  'Mentorship',
-  'Open Source',
-  'Networking',
-  'Investing',
-  'Speaking',
+  // Professional
+  'Collaboration', 'Hiring', 'Consulting', 'Mentorship', 'Open Source',
+  'Networking', 'Investing', 'Speaking', 'Freelancing', 'Co-founding',
+  // Lifestyle
+  'Travel', 'Hiking', 'Fitness', 'Yoga', 'Cooking', 'Gaming',
+  'Music', 'Art', 'Photography', 'Film', 'Reading', 'Writing',
+  // Social
+  'Friendship', 'Dating', 'Events', 'Community', 'Volunteering',
 ];
 
 export function EditAvailableForSheet(props: SheetProps<'edit-available-for-sheet'>) {
   const { myProfile, fetchMyProfile } = useProfileStore();
+  const { keypair } = useAuthStore();
   
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
@@ -83,7 +86,8 @@ export function EditAvailableForSheet(props: SheetProps<'edit-available-for-shee
         myProfile?.avatarBlobId || null,
         myProfile?.emailEnabled || false
       );
-
+      const publicKey = myProfile?.publicKey ?? keypair?.publicKeyHex;
+      if (publicKey) publishProfileMeta(publicKey, { interests: tags });
       await fetchMyProfile();
       SheetManager.hide('edit-available-for-sheet');
     } catch (err: any) {
@@ -109,7 +113,7 @@ export function EditAvailableForSheet(props: SheetProps<'edit-available-for-shee
         <TouchableOpacity onPress={close} style={s.headerBtn}>
           <X size={20} color="#888" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Available For</Text>
+        <Text style={s.headerTitle}>Interests</Text>
         <TouchableOpacity 
           style={[s.saveBtn, saving && s.saveBtnDisabled]} 
           onPress={handleSave}
@@ -131,7 +135,7 @@ export function EditAvailableForSheet(props: SheetProps<'edit-available-for-shee
         ) : (
           <>
             <Text style={s.description}>
-              Let people know what you're open to. These tags will be visible on your public profile.
+              Add your interests to help people find you. Visible on your public profile.
             </Text>
 
             {/* Add new tag */}

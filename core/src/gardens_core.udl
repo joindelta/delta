@@ -157,6 +157,12 @@ namespace gardens_core {
 
     sequence<DmThread> list_dm_threads();
 
+    [Throws=CoreError]
+    SendResult delete_conversation(string thread_id);
+
+    [Throws=CoreError]
+    SendResult leave_org(string org_id);
+
     // ── Phase 3: Networking ────────────────────────────────────────────────
     ConnectionStatus get_connection_status();
 
@@ -197,11 +203,14 @@ namespace gardens_core {
     InviteTokenInfo verify_invite_token(string token_base64, i64 current_timestamp);
 
     [Throws=AuthError]
-    void add_member_direct(
+    SendResult add_member_direct(
         string org_id,
         string member_public_key,
         string access_level
     );
+
+    [Throws=AuthError]
+    SendResult claim_invite_token(string token_base64);
 
     [Throws=AuthError]
     void remove_member_from_org(

@@ -14,13 +14,14 @@ import { MessageComposer } from '../components/MessageComposer';
 import { extractMentions } from '../components/MessageText';
 import { useMessagesStore } from '../stores/useMessagesStore';
 import { useProfileStore } from '../stores/useProfileStore';
+import { sendMentionPushNotification } from '../services/pushNotifications';
 
 type Props = NativeStackScreenProps<any, 'RoomChat'>;
 
 export function RoomChatScreen({ route }: Props) {
   const { roomId, roomName, orgId } = route.params as { roomId: string; roomName: string; orgId?: string };
   const { messages, fetchMessages, sendMessage, deleteMessage } = useMessagesStore();
-  const { myProfile } = useProfileStore();
+  const { myProfile, profileCache } = useProfileStore();
   const [loading, setLoading] = useState(true);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -53,14 +54,28 @@ export function RoomChatScreen({ route }: Props) {
 
   async function handleSend(text: string) {
     try {
+      const mentionedUsernames = extractMentions(text);
       await sendMessage({
         roomId,
         contentType: 'text',
         textContent: text,
-        mentions: extractMentions(text),
+        mentions: mentionedUsernames,
         replyTo: replyingTo ?? undefined,
       });
       setReplyingTo(null);
+      if (mentionedUsernames.length > 0) {
+        const mentionedKeys = Object.values(profileCache)
+          .filter(p => mentionedUsernames.includes(p.username) && p.publicKey !== myProfile?.publicKey)
+          .map(p => p.publicKey);
+        const preview = text.length > 100 ? text.slice(0, 97) + '…' : text;
+        sendMentionPushNotification({
+          senderName: myProfile?.username ?? 'Someone',
+          mentionedKeys,
+          orgName: roomName,
+          roomId,
+          preview,
+        });
+      }
       await loadMessages();
       // Scroll to bottom after sending
       setTimeout(() => {

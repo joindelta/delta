@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SheetManager } from 'react-native-actions-sheet';
 import { launchImageLibrary } from 'react-native-image-picker';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
@@ -99,6 +100,8 @@ export function MessageComposer({
     });
     onPrefillApplied?.();
   }, [prefillText, onPrefillApplied]);
+
+  const insets = useSafeAreaInsets();
 
   function handleSend() {
     const trimmed = text.trim();
@@ -332,7 +335,7 @@ export function MessageComposer({
         </View>
       )}
 
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingBottom: 12 + insets.bottom }]}>
         <TouchableOpacity style={[styles.attachBtn, trayOpen && styles.attachBtnActive]} onPress={() => setTrayOpen(o => !o)}>
           <Text style={styles.attachText}>{trayOpen ? '×' : '+'}</Text>
         </TouchableOpacity>
@@ -384,7 +387,9 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 12,
+    paddingTop: 12,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
     backgroundColor: '#0a0a0a',
     borderTopWidth: 1,
     borderTopColor: '#1a1a1a',

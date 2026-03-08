@@ -24,7 +24,7 @@ import { SheetManager } from 'react-native-actions-sheet';
 import { Settings, Plus } from 'lucide-react-native';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProfileStore } from '../stores/useProfileStore';
-import { registerPushToken } from '../services/pushNotifications';
+import { registerPushToken, setupForegroundHandler } from '../services/pushNotifications';
 
 import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { SignupScreen } from '../screens/SignupScreen';
@@ -36,7 +36,8 @@ import { InboxScreen } from '../screens/InboxScreen';
 import { OrgChatScreen } from '../screens/OrgChatScreen';
 import { OrgSettingsScreen } from '../screens/OrgSettingsScreen';
 import { UserSettingsScreen } from '../screens/UserSettingsScreen';
-import { DMChatScreen } from '../screens/DMChatScreen';
+import { ConversationScreen } from '../screens/ConversationScreen';
+import { RequestsScreen } from '../screens/RequestsScreen';
 import { MemberListScreen } from '../screens/MemberListScreen';
 import { AddMemberScreen } from '../screens/AddMemberScreen';
 import { JoinOrgScreen } from '../screens/JoinOrgScreen';
@@ -57,6 +58,7 @@ export type AuthStackParamList = {
 export type MainStackParamList = {
   Home: undefined;
   Inbox: undefined;
+  Requests: undefined;
   DiscoverOrgs: undefined;
   Invite: { orgId: string; orgName: string };
   OrgChat: { orgId: string; orgName: string };
@@ -64,7 +66,7 @@ export type MainStackParamList = {
   MemberList: { orgId: string; orgName: string };
   AddMember: { orgId: string; orgName: string };
   JoinOrg: { token: string };
-  DMChat: { threadId: string; recipientKey: string };
+  Conversation: { threadId: string; recipientKey: string };
   Profile: undefined;
   Settings: undefined;
 };
@@ -140,6 +142,8 @@ function MainNavigator() {
     fetchMyProfile();
     const publicKey = keypair?.publicKeyHex;
     if (publicKey) registerPushToken(publicKey).catch(() => {});
+    const unsubscribeForeground = setupForegroundHandler();
+    return () => unsubscribeForeground();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -160,9 +164,13 @@ function MainNavigator() {
       } else if (url.startsWith('gardens://dm/')) {
         const recipientKey = url.slice('gardens://dm/'.length);
         if (recipientKey) {
-          setTimeout(() => {
-            navigationRef.current?.navigate('DMChat', { threadId: recipientKey, recipientKey });
-          }, 100);
+          import('../stores/useConversationsStore').then(({ useConversationsStore }) => {
+            useConversationsStore.getState().createConversation(recipientKey).then(threadId => {
+              setTimeout(() => {
+                navigationRef.current?.navigate('Conversation', { threadId, recipientKey });
+              }, 100);
+            }).catch(() => {});
+          });
         }
       }
     }
@@ -214,6 +222,11 @@ function MainNavigator() {
           options={{ title: 'Inbox', headerShown: true }}
         />
         <MainStack.Screen
+          name="Requests"
+          component={RequestsScreen}
+          options={{ title: 'Message Requests', headerShown: true }}
+        />
+        <MainStack.Screen
           name="DiscoverOrgs"
           component={DiscoverOrgsScreen}
           options={{ title: 'Discover Communities', headerShown: true }}
@@ -224,9 +237,9 @@ function MainNavigator() {
           options={{ headerShown: true }}
         />
         <MainStack.Screen
-          name="DMChat"
-          component={DMChatScreen}
-          options={{ title: 'Direct Message', headerShown: true }}
+          name="Conversation"
+          component={ConversationScreen}
+          options={{ title: 'Conversation', headerShown: true }}
         />
         <MainStack.Screen
           name="Invite"

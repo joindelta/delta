@@ -20,7 +20,7 @@ use sqlx::SqlitePool;
 
 use crate::db::{self, MessageRow, OrgRow, ProfileRow, RoomRow, DmThreadRow, EventRow};
 use crate::encryption::{Id, get_encryption};
-use crate::ops::{decode_cbor, log_ids, MessageOp, OrgOp, OrgUpdateOp, ProfileOp, ReactionOp, RoomOp, RoomDeleteOp, RoomUpdateOp, DmThreadOp, EventOp, EventUpdateOp, EventDeleteOp, EventRsvpOp};
+use crate::ops::{decode_cbor, log_ids, MessageOp, OrgOp, OrgUpdateOp, ProfileOp, ReactionOp, RoomOp, RoomDeleteOp, RoomUpdateOp, DmThreadOp, DeleteConversationOp, EventOp, EventUpdateOp, EventDeleteOp, EventRsvpOp};
 use crate::store::get_core;
 
 fn now_micros() -> i64 {
@@ -40,7 +40,7 @@ pub async fn run_projector(read_pool: SqlitePool) {
     }
 }
 
-async fn project_tick(read_pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn project_tick(read_pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let core = match get_core() {
         Some(c) => c,
         None => return Ok(()),
@@ -514,6 +514,21 @@ async fn project_dm_thread(
     body: &[u8],
     now: i64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Check for delete_conversation op
+    if let Ok(delete_op) = decode_cbor::<DeleteConversationOp>(body) {
+        if delete_op.op_type == "delete_conversation" {
+            sqlx::query("DELETE FROM messages WHERE dm_thread_id = ?")
+                .bind(&delete_op.thread_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM dm_threads WHERE thread_id = ?")
+                .bind(&delete_op.thread_id)
+                .execute(pool)
+                .await?;
+            return Ok(());
+        }
+    }
+
     let op: DmThreadOp = decode_cbor(body)?;
 
     // Determine if this is a message request (sender unknown to local user)

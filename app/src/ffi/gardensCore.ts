@@ -263,16 +263,17 @@ interface GardensCoreNative {
   listReactions(messageIds: string[]): Promise<Reaction[]>;
   deleteMessage(messageId: string, orgId: string | null): Promise<{ id: string; opBytesBase64: string }>;
   createDmThread(recipientKey: string): Promise<{ id: string; opBytesBase64: string }>;
+  claimInviteToken(tokenBase64: string): Promise<{ id: string; opBytesBase64: string }>;
   listDmThreads(): Promise<DmThread[]>;
-  acceptMessageRequest(threadId: string): Promise<void>;
-  declineMessageRequest(threadId: string): Promise<void>;
+  deleteConversation(threadId: string): Promise<{ id: string; opBytesBase64: string }>;
+  leaveOrg(orgId: string): Promise<{ id: string; opBytesBase64: string }>;
   // Phase 3
   getConnectionStatus(): Promise<ConnectionStatus>;
   searchPublicOrgs(query: string): Promise<OrgSummary[]>;
   // Phase 5
   generateInviteToken(orgId: string, accessLevel: string, expiryTimestamp: number): string;
   verifyInviteToken(tokenBase64: string, currentTimestamp: number): InviteTokenInfo;
-  addMemberDirect(orgId: string, memberPublicKey: string, accessLevel: string): Promise<void>;
+  addMemberDirect(orgId: string, memberPublicKey: string, accessLevel: string): Promise<{ id: string; opBytesBase64: string }>;
   removeMemberFromOrg(orgId: string, memberPublicKey: string): Promise<void>;
   changeMemberPermission(orgId: string, memberPublicKey: string, newAccessLevel: string): Promise<void>;
   listOrgMembers(orgId: string): Promise<MemberInfo[]>;
@@ -372,9 +373,10 @@ function loadNative(): GardensCoreNative {
       async listReactions() { return []; },
       async deleteMessage() { throw new Error('gardens_core not loaded'); },
       async createDmThread() { throw new Error('gardens_core not loaded'); },
+      async claimInviteToken() { throw new Error('gardens_core not loaded'); },
       async listDmThreads() { return []; },
-      async acceptMessageRequest() { throw new Error('gardens_core not loaded'); },
-      async declineMessageRequest() { throw new Error('gardens_core not loaded'); },
+      async deleteConversation() { throw new Error('gardens_core not loaded'); },
+      async leaveOrg() { throw new Error('gardens_core not loaded'); },
       async getConnectionStatus() { return 'Offline'; },
       async searchPublicOrgs() { return []; },
       generateInviteToken() { throw new Error('gardens_core not loaded'); },
@@ -651,16 +653,31 @@ export async function createDmThread(recipientKey: string): Promise<SendResult> 
   return { id: raw.id, opBytes: base64ToBytes(raw.opBytesBase64) };
 }
 
+export async function claimInviteToken(tokenBase64: string): Promise<SendResult> {
+  try {
+    const raw = await native.claimInviteToken(tokenBase64);
+    return { id: raw.id, opBytes: base64ToBytes(raw.opBytesBase64) };
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      if (err.message.includes('Unauthorized')) throw new AuthError('Unauthorized', err.message);
+      if (err.message.includes('TokenExpired')) throw new AuthError('TokenExpired', err.message);
+    }
+    throw err;
+  }
+}
+
 export async function listDmThreads(): Promise<DmThread[]> {
   return native.listDmThreads();
 }
 
-export async function acceptMessageRequest(threadId: string): Promise<void> {
-  return native.acceptMessageRequest(threadId);
+export async function deleteConversation(threadId: string): Promise<SendResult> {
+  const raw = await native.deleteConversation(threadId);
+  return { id: raw.id, opBytes: base64ToBytes(raw.opBytesBase64) };
 }
 
-export async function declineMessageRequest(threadId: string): Promise<void> {
-  return native.declineMessageRequest(threadId);
+export async function leaveOrg(orgId: string): Promise<SendResult> {
+  const raw = await native.leaveOrg(orgId);
+  return { id: raw.id, opBytes: base64ToBytes(raw.opBytesBase64) };
 }
 
 // ── Phase 3 exports ───────────────────────────────────────────────────────────
@@ -729,8 +746,9 @@ export async function addMemberDirect(
   orgId: string,
   memberPublicKey: string,
   accessLevel: string,
-): Promise<void> {
-  return native.addMemberDirect(orgId, memberPublicKey, accessLevel);
+): Promise<SendResult> {
+  const raw = await native.addMemberDirect(orgId, memberPublicKey, accessLevel);
+  return { id: raw.id, opBytes: base64ToBytes(raw.opBytesBase64) };
 }
 
 export async function removeMemberFromOrg(

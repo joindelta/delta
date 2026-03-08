@@ -89,9 +89,10 @@ export const useMessagesStore = create<MessagesState>((set) => ({
       replyTo ?? null,
     );
 
-    // Broadcast op to sync worker so other org members receive it live
-    if (roomId && result.opBytes?.length) {
-      broadcastOp(roomId, result.opBytes);
+    // Broadcast op to sync worker so peers receive it live
+    if (result.opBytes?.length) {
+      const topic = roomId ?? dmThreadId;
+      if (topic) broadcastOp(topic, result.opBytes);
     }
 
     return result.id;

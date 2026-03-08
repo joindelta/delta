@@ -18,6 +18,10 @@ id = "60ab4a818c3e4f75a3902fe7a50eabf7"
 binding = "RATE_LIMIT_KV"
 id = "e07882c2076f483aaf4f67078a0ed624"
 
+[[kv_namespaces]]
+binding = "PUSH_TOKENS"
+id = "9b4dcdbceb5d46d2a2086518911a04c4"
+
 [[send_email]]
 name = "EMAIL"
 

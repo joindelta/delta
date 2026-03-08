@@ -19,21 +19,6 @@ pub enum DbError {
 
 /// Create all read-model tables if they don't already exist.
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
-    // Additive column migrations — safe to run repeatedly (errors are ignored).
-    let additive_migrations = [
-        "ALTER TABLE organizations ADD COLUMN cover_blob_id TEXT",
-        "ALTER TABLE organizations ADD COLUMN welcome_text TEXT",
-        "ALTER TABLE organizations ADD COLUMN custom_emoji_json TEXT",
-        "ALTER TABLE organizations ADD COLUMN org_cooldown_secs INTEGER",
-        "ALTER TABLE rooms ADD COLUMN room_cooldown_secs INTEGER",
-        "ALTER TABLE profiles ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE organizations ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE dm_threads ADD COLUMN is_request INTEGER NOT NULL DEFAULT 0",
-    ];
-    for sql in &additive_migrations {
-        let _ = sqlx::query(sql).execute(pool).await;
-    }
-
     sqlx::query(
         r#"
         PRAGMA journal_mode=WAL;
@@ -71,7 +56,8 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
             creator_key     TEXT NOT NULL,
             org_pubkey      TEXT,              -- Org's public key (z32 encoded)
             org_privkey_enc BLOB,              -- Org's private key (encrypted with user's key)
-            created_at      INTEGER NOT NULL
+            created_at      INTEGER NOT NULL,
+            email_enabled   INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS memberships (
@@ -161,7 +147,8 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
             initiator_key     TEXT NOT NULL,
             recipient_key     TEXT NOT NULL,
             created_at        INTEGER NOT NULL,
-            last_message_at   INTEGER
+            last_message_at   INTEGER,
+            is_request        INTEGER NOT NULL DEFAULT 0
         );
 
         -- Projector bookmark: tracks the last seq_num projected per (log_id, author).
@@ -234,19 +221,21 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), DbError> {
     // ── Additive migrations (safe to re-run: errors are ignored) ──────────────
     // ALTER TABLE ADD COLUMN fails with "duplicate column name" if already present;
     // that is harmless, so we swallow the error.
-    let _ = sqlx::query(
-        "ALTER TABLE profiles ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0"
-    )
-    .execute(pool)
-    .await;
-
-    // Add org keypair columns (for org keypair feature)
-    let _ = sqlx::query("ALTER TABLE organizations ADD COLUMN org_pubkey TEXT")
-        .execute(pool)
-        .await;
-    let _ = sqlx::query("ALTER TABLE organizations ADD COLUMN org_privkey_enc BLOB")
-        .execute(pool)
-        .await;
+    for sql in &[
+        "ALTER TABLE profiles ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE organizations ADD COLUMN org_pubkey TEXT",
+        "ALTER TABLE organizations ADD COLUMN org_privkey_enc BLOB",
+        "ALTER TABLE organizations ADD COLUMN cover_blob_id TEXT",
+        "ALTER TABLE organizations ADD COLUMN welcome_text TEXT",
+        "ALTER TABLE organizations ADD COLUMN custom_emoji_json TEXT",
+        "ALTER TABLE organizations ADD COLUMN org_cooldown_secs INTEGER",
+        "ALTER TABLE organizations ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE rooms ADD COLUMN room_cooldown_secs INTEGER",
+        "ALTER TABLE profiles ADD COLUMN email_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE dm_threads ADD COLUMN is_request INTEGER NOT NULL DEFAULT 0",
+    ] {
+        let _ = sqlx::query(sql).execute(pool).await;
+    }
 
     Ok(())
 }
@@ -1170,6 +1159,18 @@ pub async fn insert_message(pool: &SqlitePool, row: &MessageRow) -> Result<(), D
     .bind(row.is_deleted as i64)
     .execute(pool)
     .await?;
+
+    // Keep dm_threads.last_message_at current so the HomeScreen sort order is correct.
+    if let Some(tid) = &row.dm_thread_id {
+        sqlx::query(
+            "UPDATE dm_threads SET last_message_at = MAX(COALESCE(last_message_at, 0), ?) WHERE thread_id = ?",
+        )
+        .bind(row.timestamp)
+        .bind(tid)
+        .execute(pool)
+        .await?;
+    }
+
     Ok(())
 }
 

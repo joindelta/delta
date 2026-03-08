@@ -1811,6 +1811,18 @@ pub fn send_message(
             }
         }
 
+        // Auto-accept if the local user is the recipient replying to a request
+        if let Some(ref tid) = dm_thread_id {
+            if let Ok(Some(thread)) = db::get_dm_thread(pool, tid).await {
+                if thread.is_request && thread.recipient_key == core.public_key_hex {
+                    let _ = sqlx::query("UPDATE dm_threads SET is_request = 0 WHERE thread_id = ?")
+                        .bind(tid)
+                        .execute(pool)
+                        .await;
+                }
+            }
+        }
+
         let (op_hash, gossip_bytes) = {
             let mut op_store = core.op_store.lock().await;
             ops::publish(
@@ -2374,6 +2386,76 @@ pub fn decline_message_request(thread_id: String) -> Result<(), AuthError> {
     })
 }
 
+pub fn delete_conversation(thread_id: String) -> Result<SendResult, CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+
+        let (op_hash, gossip_bytes) = {
+            let mut op_store = core.op_store.lock().await;
+            ops::publish(
+                &mut op_store,
+                &core.private_key,
+                ops::log_ids::DM_THREAD,
+                &ops::DeleteConversationOp {
+                    op_type: "delete_conversation".into(),
+                    thread_id: thread_id.clone(),
+                },
+            )
+            .await?
+        };
+
+        // Delete locally immediately
+        sqlx::query("DELETE FROM messages WHERE dm_thread_id = ?")
+            .bind(&thread_id)
+            .execute(pool)
+            .await
+            .map_err(|e| CoreError::DbError(e.to_string()))?;
+        sqlx::query("DELETE FROM dm_threads WHERE thread_id = ?")
+            .bind(&thread_id)
+            .execute(pool)
+            .await
+            .map_err(|e| CoreError::DbError(e.to_string()))?;
+
+        Ok(SendResult { id: thread_id, op_bytes: gossip_bytes })
+    })
+}
+
+pub fn leave_org(org_id: String) -> Result<SendResult, CoreError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(CoreError::NotInitialised)?;
+        let pool = &core.read_pool;
+
+        let (op_hash, gossip_bytes) = {
+            let mut op_store = core.op_store.lock().await;
+            ops::publish(
+                &mut op_store,
+                &core.private_key,
+                ops::log_ids::MEMBERSHIP,
+                &ops::MembershipOp {
+                    op_type: "remove_member".into(),
+                    org_id: org_id.clone(),
+                    member_key: core.public_key_hex.clone(),
+                    access_level: None,
+                    cooldown_secs: None,
+                    iced_until: None,
+                },
+            )
+            .await?
+        };
+
+        // Remove locally immediately
+        sqlx::query("DELETE FROM memberships WHERE org_id = ? AND member_key = ?")
+            .bind(&org_id)
+            .bind(&core.public_key_hex)
+            .execute(pool)
+            .await
+            .map_err(|e| CoreError::DbError(e.to_string()))?;
+
+        Ok(SendResult { id: op_hash.to_hex(), op_bytes: gossip_bytes })
+    })
+}
+
 async fn room_gossip_context(
     core: &store::GardensCore,
     room_id: &str,
@@ -2591,7 +2673,7 @@ pub fn add_member_direct(
     org_id: String,
     member_public_key: String,
     access_level: String,
-) -> Result<(), AuthError> {
+) -> Result<SendResult, AuthError> {
     store::block_on(async move {
         let core = store::get_core().ok_or(AuthError::NotInitialised)?;
 
@@ -2642,7 +2724,7 @@ pub fn add_member_direct(
             .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
 
         let mut store_guard = core.op_store.lock().await;
-        ops::sign_and_store_op(
+        let (_hash, gossip_bytes) = ops::sign_and_store_op(
             &mut *store_guard,
             &core.private_key,
             ops::log_ids::MEMBERSHIP,
@@ -2651,9 +2733,83 @@ pub fn add_member_direct(
         .await
         .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
 
-        // op delivered via onion routing from the app layer
+        Ok(SendResult { id: org_id, op_bytes: gossip_bytes })
+    })
+}
 
-        Ok(())
+/// Claim an invite token — self-join an org using a signed invite from a Manage-level member.
+/// Verifies the inviter's signature, checks they still have Manage permission,
+/// then adds the current user as a member with the access level encoded in the token.
+/// Returns orgId (as `id`) and opBytes for broadcasting to the org topic.
+pub fn claim_invite_token(token_base64: String) -> Result<SendResult, AuthError> {
+    store::block_on(async move {
+        let core = store::get_core().ok_or(AuthError::NotInitialised)?;
+
+        // 1. Decode and verify the token
+        let token = auth::InviteToken::from_base64(&token_base64)
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+
+        let (inviter_key, access_level) = token.verify(now_ms)?;
+        let org_id = token.org_id.clone();
+
+        // 2. Verify inviter still has Manage permission
+        let mut state = get_org_membership_state(&org_id).await?;
+        if !state.has_permission(&inviter_key, auth::AccessLevel::Manage) {
+            return Err(AuthError::Unauthorized(
+                "inviter no longer has Manage permission".into(),
+            ));
+        }
+
+        // 3. Add current user as member (token is the authorization proof)
+        let my_key = core.private_key.public_key();
+        let my_key_hex = my_key.to_hex();
+        state.add_member(my_key, access_level);
+
+        // 4. Sign and store the membership op
+        let membership_op = ops::MembershipOp {
+            op_type: "add_member".into(),
+            org_id: org_id.clone(),
+            member_key: my_key_hex.clone(),
+            access_level: Some(access_level.as_str().to_string()),
+            cooldown_secs: None,
+            iced_until: None,
+        };
+
+        let payload = ops::encode_cbor(&membership_op)
+            .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        let mut store_guard = core.op_store.lock().await;
+        let (_op_hash, gossip_bytes) = ops::sign_and_store_op(
+            &mut *store_guard,
+            &core.private_key,
+            ops::log_ids::MEMBERSHIP,
+            payload,
+        )
+        .await
+        .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        // 5. Persist membership in the read model
+        let joined_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as i64;
+
+        db::upsert_membership(
+            &core.read_pool,
+            &org_id,
+            &my_key_hex,
+            access_level.as_str(),
+            joined_at,
+        )
+        .await
+        .map_err(|e| AuthError::Unauthorized(e.to_string()))?;
+
+        Ok(SendResult { id: org_id, op_bytes: gossip_bytes })
     })
 }
 

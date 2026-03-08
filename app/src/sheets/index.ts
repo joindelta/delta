@@ -10,9 +10,12 @@ import { DeleteAccountSheet } from './DeleteAccountSheet';
 import { MemberActionsSheet } from './MemberActionsSheet';
 import { EditOrgSheet } from './EditOrgSheet';
 import { MessageActionsSheet } from './MessageActionsSheet';
+import { ConversationActionsSheet } from './ConversationActionsSheet';
 import { EmojiPickerSheet } from './EmojiPickerSheet';
 import { ComposeEmailSheet } from './ComposeEmailSheet';
 import { EmailDetailSheet } from './EmailDetailSheet';
+import { LocationPickerSheet } from './LocationPickerSheet';
+import { InterestsSheet } from './InterestsSheet';
 import type { InboxEmail } from '../stores/useInboxStore';
 
 registerSheet('attach-sheet', AttachSheet);
@@ -26,9 +29,12 @@ registerSheet('delete-account-sheet', DeleteAccountSheet);
 registerSheet('member-actions-sheet', MemberActionsSheet);
 registerSheet('edit-org-sheet', EditOrgSheet);
 registerSheet('message-actions-sheet', MessageActionsSheet);
+registerSheet('conversation-actions-sheet', ConversationActionsSheet);
 registerSheet('emoji-picker-sheet', EmojiPickerSheet);
 registerSheet('compose-email-sheet', ComposeEmailSheet);
 registerSheet('email-detail-sheet', EmailDetailSheet);
+registerSheet('location-picker-sheet', LocationPickerSheet);
+registerSheet('interests-sheet', InterestsSheet);
 
 declare module 'react-native-actions-sheet' {
   interface Sheets {
@@ -43,9 +49,12 @@ declare module 'react-native-actions-sheet' {
     'member-actions-sheet': SheetDefinition;
     'edit-org-sheet': SheetDefinition;
     'message-actions-sheet': SheetDefinition;
+    'conversation-actions-sheet': SheetDefinition<{ payload: { title?: string; onDelete?: () => void } }>;
     'emoji-picker-sheet': SheetDefinition;
     'compose-email-sheet': SheetDefinition<{ payload: { to?: string; subject?: string; replyToMessageId?: string } }>;
     'email-detail-sheet': SheetDefinition<{ payload: InboxEmail }>;
+    'location-picker-sheet': SheetDefinition;
+    'interests-sheet': SheetDefinition;
   }
 }
 

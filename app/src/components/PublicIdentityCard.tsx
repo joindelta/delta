@@ -24,12 +24,16 @@ interface Props {
   onShare?: () => void;
 }
 
+const GARDENS_BASE_URL = 'https://gardens.app';
+
 export function PublicIdentityCard({ pkarrUrl, publicKeyHex, label, onShare }: Props) {
   const [showFullKey, setShowFullKey] = useState(false);
   const [dnsExpanded, setDnsExpanded] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
   const truncatedKey = `${publicKeyHex.slice(0, 16)}...${publicKeyHex.slice(-8)}`;
+  const z32Key = pkarrUrl.startsWith('pk:') ? pkarrUrl.slice(3) : pkarrUrl;
+  const webLink = `${GARDENS_BASE_URL}/pk/${z32Key}`;
 
   const handleCopy = (text: string, type: string) => {
     Clipboard.setString(text);
@@ -44,8 +48,8 @@ export function PublicIdentityCard({ pkarrUrl, publicKeyHex, label, onShare }: P
     }
     try {
       await Share.share({
-        message: `${label}: ${pkarrUrl}`,
-        url: pkarrUrl,
+        message: `${label}: ${webLink}`,
+        url: webLink,
       });
     } catch {
       // Share cancelled
@@ -73,25 +77,25 @@ export function PublicIdentityCard({ pkarrUrl, publicKeyHex, label, onShare }: P
       {/* QR Code */}
       <View style={s.qrContainer}>
         <QRCode
-          value={pkarrUrl}
+          value={webLink}
           size={160}
           backgroundColor="#111"
           color="#fff"
         />
       </View>
 
-      {/* Pkarr URL */}
+      {/* Public Link */}
       <View style={s.row}>
         <View style={s.rowContent}>
-          <Text style={s.rowLabel}>Your Public URL</Text>
+          <Text style={s.rowLabel}>Your Public Link</Text>
           <Text style={s.rowValue} numberOfLines={1} ellipsizeMode="middle">
-            {pkarrUrl}
+            {webLink}
           </Text>
         </View>
         <View style={s.rowActions}>
           <TouchableOpacity
             style={s.iconBtn}
-            onPress={() => handleCopy(pkarrUrl, 'url')}
+            onPress={() => handleCopy(webLink, 'url')}
           >
             <Text style={s.iconBtnText}>
               {copied === 'url' ? '✓' : '📋'}

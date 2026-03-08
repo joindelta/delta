@@ -16,7 +16,8 @@ import { generateInviteToken } from '../ffi/gardensCore';
 
 type Props = NativeStackScreenProps<any, 'Invite'>;
 
-const ACCESS_LEVELS = ['Pull', 'Read', 'Write', 'Manage'];
+const ACCESS_LEVELS = ['pull', 'read', 'write', 'manage'];
+const ACCESS_LEVEL_LABELS: Record<string, string> = { pull: 'Pull', read: 'Read', write: 'Write', manage: 'Manage' };
 const EXPIRY_OPTIONS = [
   { label: '1 hour', hours: 1 },
   { label: '24 hours', hours: 24 },
@@ -26,7 +27,7 @@ const EXPIRY_OPTIONS = [
 
 export function InviteScreen({ route }: Props) {
   const { orgId, orgName } = route.params as { orgId: string; orgName: string };
-  const [accessLevel, setAccessLevel] = useState('Read');
+  const [accessLevel, setAccessLevel] = useState('read');
   const [expiryHours, setExpiryHours] = useState(24);
   const [token, setToken] = useState<string | null>(null);
   const [nfcSupported, setNfcSupported] = useState(false);
@@ -59,9 +60,11 @@ export function InviteScreen({ route }: Props) {
 
   async function handleShare() {
     if (!token) return;
+    const link = `gardens://invite/${token}`;
     try {
       await Share.share({
-        message: `Join ${orgName} on Gardens!\n\nInvite code: ${token}\n\nAccess level: ${accessLevel}\nExpires in ${expiryHours} hours`,
+        message: `Join ${orgName} on Gardens!\n\n${link}`,
+        url: link,
         title: `Join ${orgName}`,
       });
     } catch (err: any) {
@@ -104,7 +107,7 @@ export function InviteScreen({ route }: Props) {
               onPress={() => setAccessLevel(level)}
             >
               <Text style={[styles.optionText, accessLevel === level && styles.optionTextActive]}>
-                {level}
+                {ACCESS_LEVEL_LABELS[level]}
               </Text>
             </TouchableOpacity>
           ))}
@@ -135,7 +138,7 @@ export function InviteScreen({ route }: Props) {
       {token && (
         <View style={styles.tokenCard}>
           <View style={styles.qrContainer}>
-            <QRCode value={token} size={200} backgroundColor="#fff" />
+            <QRCode value={`gardens://invite/${token}`} size={200} backgroundColor="#fff" />
           </View>
 
           <Text style={styles.tokenLabel}>Invite Token</Text>

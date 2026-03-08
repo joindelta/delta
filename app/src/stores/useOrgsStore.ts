@@ -4,6 +4,7 @@ import {
   listMyOrgs as dcListMyOrgs,
   updateOrg as dcUpdateOrg,
   deleteOrg as dcDeleteOrg,
+  leaveOrg as dcLeaveOrg,
   listRooms as dcListRooms,
   createRoom as dcCreateRoom,
   updateRoom as dcUpdateRoom,
@@ -49,6 +50,7 @@ interface OrgsState {
   deleteRoom(orgId: string, roomId: string): Promise<void>;
   archiveRoom(orgId: string, roomId: string): Promise<void>;
   unarchiveRoom(orgId: string, roomId: string): Promise<void>;
+  leaveOrg(orgId: string): Promise<void>;
 }
 
 export const useOrgsStore = create<OrgsState>((set, get) => ({
@@ -105,6 +107,21 @@ export const useOrgsStore = create<OrgsState>((set, get) => ({
 
   async deleteOrg(orgId: string) {
     await dcDeleteOrg(orgId);
+    set(s => {
+      const { [orgId]: _removed, ...restRooms } = s.rooms;
+      return {
+        orgs: s.orgs.filter(o => o.orgId !== orgId),
+        rooms: restRooms,
+        deletedOrgIds: s.deletedOrgIds.includes(orgId) ? s.deletedOrgIds : [...s.deletedOrgIds, orgId],
+      };
+    });
+  },
+
+  async leaveOrg(orgId: string) {
+    const result = await dcLeaveOrg(orgId);
+    if (result.opBytes?.length) {
+      broadcastOp(orgId, result.opBytes);
+    }
     set(s => {
       const { [orgId]: _removed, ...restRooms } = s.rooms;
       return {
