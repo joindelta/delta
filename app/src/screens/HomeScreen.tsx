@@ -166,7 +166,9 @@ export function HomeScreen({ navigation }: Props) {
               <Text style={styles.time}>{formatTime(item.lastMessageAt)}</Text>
             </View>
             {(() => {
-              const threadMsgs = messages[item.threadId] ?? [];
+              const threadMsgs = (messages[item.threadId] ?? []).filter(
+                m => !m.isDeleted && m.contentType !== 'profile'
+              );
               const last = threadMsgs[threadMsgs.length - 1];
               let preview = 'No messages yet';
               if (last) {
