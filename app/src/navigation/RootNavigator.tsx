@@ -6,7 +6,7 @@
  * bar removed.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,12 +14,17 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Image,
+  Linking,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SheetManager } from 'react-native-actions-sheet';
 import { Settings, Plus } from 'lucide-react-native';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProfileStore } from '../stores/useProfileStore';
+import { registerPushToken } from '../services/pushNotifications';
 
 import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { SignupScreen } from '../screens/SignupScreen';
@@ -34,7 +39,9 @@ import { UserSettingsScreen } from '../screens/UserSettingsScreen';
 import { DMChatScreen } from '../screens/DMChatScreen';
 import { MemberListScreen } from '../screens/MemberListScreen';
 import { AddMemberScreen } from '../screens/AddMemberScreen';
+import { JoinOrgScreen } from '../screens/JoinOrgScreen';
 import { DebugConnectionPanel } from '../components/DebugConnectionPanel';
+import { LockScreen } from '../components/LockScreen';
 
 // Import the Gardens logo for the FAB
 // const gardensLogo = require('../../assets/gardens-logo.png');
@@ -56,6 +63,7 @@ export type MainStackParamList = {
   OrgSettings: { orgId: string; orgName: string };
   MemberList: { orgId: string; orgName: string };
   AddMember: { orgId: string; orgName: string };
+  JoinOrg: { token: string };
   DMChat: { threadId: string; recipientKey: string };
   Profile: undefined;
   Settings: undefined;
@@ -122,13 +130,49 @@ const placeholderStyles = StyleSheet.create({
 
 function MainNavigator() {
   const [currentScreen, setCurrentScreen] = useState('Home');
+  const insets = useSafeAreaInsets();
 
+  const { keypair } = useAuthStore();
   const { myProfile, profilePicUri, localUsername, loadProfilePicUri, loadLocalUsername, fetchMyProfile } = useProfileStore();
   useEffect(() => {
     loadProfilePicUri();
     loadLocalUsername();
     fetchMyProfile();
+    const publicKey = keypair?.publicKeyHex;
+    if (publicKey) registerPushToken(publicKey).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Deep link handler ──────────────────────────────────────────────────────
+  const navigationRef = useRef<any>(null);
+
+  useEffect(() => {
+    function handleUrl(url: string) {
+      if (!url) return;
+      if (url.startsWith('gardens://invite/')) {
+        const token = url.slice('gardens://invite/'.length);
+        if (token) {
+          // Navigate to JoinOrg — use a small timeout to ensure navigator is ready
+          setTimeout(() => {
+            navigationRef.current?.navigate('JoinOrg', { token });
+          }, 100);
+        }
+      } else if (url.startsWith('gardens://dm/')) {
+        const recipientKey = url.slice('gardens://dm/'.length);
+        if (recipientKey) {
+          setTimeout(() => {
+            navigationRef.current?.navigate('DMChat', { threadId: recipientKey, recipientKey });
+          }, 100);
+        }
+      }
+    }
+
+    // Cold start: app opened via deep link
+    Linking.getInitialURL().then(url => { if (url) handleUrl(url); }).catch(() => {});
+
+    // Warm start: app already open
+    const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => sub.remove();
   }, []);
 
   const initials = (myProfile?.username ?? localUsername ?? '?').slice(0, 2).toUpperCase();
@@ -136,6 +180,7 @@ function MainNavigator() {
   return (
     <>
       <MainStack.Navigator
+        ref={navigationRef}
         screenOptions={{
           headerStyle: { backgroundColor: '#0a0a0a' },
           headerTintColor: '#fff',
@@ -181,10 +226,7 @@ function MainNavigator() {
         <MainStack.Screen
           name="DMChat"
           component={DMChatScreen}
-          options={({ route }) => ({
-            title: `${(route.params as any).recipientKey.slice(0, 16)}...`,
-            headerShown: true,
-          })}
+          options={{ title: 'Direct Message', headerShown: true }}
         />
         <MainStack.Screen
           name="Invite"
@@ -205,6 +247,11 @@ function MainNavigator() {
           name="AddMember"
           component={AddMemberScreen}
           options={{ title: 'Add Member', headerShown: true }}
+        />
+        <MainStack.Screen
+          name="JoinOrg"
+          component={JoinOrgScreen}
+          options={{ title: 'Join Organization', headerShown: true }}
         />
 
         <MainStack.Screen
@@ -228,7 +275,7 @@ function MainNavigator() {
 
       {/* Floating + button — only on Home */}
       {currentScreen === 'Home' && (
-        <View pointerEvents="box-none" style={fabStyles.container}>
+        <View pointerEvents="box-none" style={[fabStyles.container, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <TouchableOpacity style={fabStyles.fab} onPress={() => SheetManager.show('fab-sheet')}>
             <Plus size={24} color="#000" />
           </TouchableOpacity>
@@ -256,14 +303,43 @@ const fabStyles = StyleSheet.create({
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export function RootNavigator() {
-  const { isUnlocked, unlockWithBiometric } = useAuthStore();
+  const { isUnlocked, hasStoredKey, unlockWithBiometric, lock, checkHasStoredKey } = useAuthStore();
+  const lockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // On mount, attempt a silent biometric unlock if a key is already stored.
   useEffect(() => {
-    unlockWithBiometric();
+    // Check for stored account first, then attempt biometric unlock
+    checkHasStoredKey().then(() => unlockWithBiometric());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 30-second background auto-lock
+  useEffect(() => {
+    function handleAppStateChange(nextState: AppStateStatus) {
+      if (nextState === 'background' || nextState === 'inactive') {
+        lockTimer.current = setTimeout(() => {
+          lock();
+        }, 30_000);
+      } else if (nextState === 'active') {
+        if (lockTimer.current) {
+          clearTimeout(lockTimer.current);
+          lockTimer.current = null;
+        }
+        // Re-prompt biometrics if we came back locked with an account
+        const { isUnlocked: currentLocked, hasStoredKey: currentHasKey } = useAuthStore.getState();
+        if (!currentLocked && currentHasKey) {
+          unlockWithBiometric();
+        }
+      }
+    }
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      sub.remove();
+      if (lockTimer.current) clearTimeout(lockTimer.current);
+    };
+  }, [lock, unlockWithBiometric]);
+
+  // Splash while we haven't determined state yet
   if (isUnlocked === null) {
     return (
       <View style={splash.root}>
@@ -272,7 +348,18 @@ export function RootNavigator() {
     );
   }
 
-  return isUnlocked ? <MainNavigator /> : <AuthNavigator />;
+  // Has account but locked — show lock screen overlay
+  if (!isUnlocked && hasStoredKey) {
+    return <LockScreen />;
+  }
+
+  // No account — show auth flow
+  if (!isUnlocked) {
+    return <AuthNavigator />;
+  }
+
+  // Unlocked — show main app
+  return <MainNavigator />;
 }
 
 const splash = StyleSheet.create({
